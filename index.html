@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0e1116">
-<title>GTP Field Capture</title>
+<title>Field Cam</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -131,14 +131,14 @@ button:disabled{opacity:.4}
 <!-- ============ SETUP ============ -->
 <div class="screen on" id="scSetup">
  <div class="scroll pad">
-  <h1>GTP Field Capture</h1>
+  <h1>Field Cam</h1>
   <div class="muted">Guided unit-by-unit photo capture. Writes the photo map as you shoot, so no
   vision pass has to guess unit boundaries later.</div>
 
   <h2>Claim</h2>
   <label>Insured</label><input id="fInsured" placeholder="SECURE ITADS" autocapitalize="characters">
   <label>Claim #</label><input id="fClaim" placeholder="C26-2191" autocapitalize="characters">
-  <label>GTP # <span style="text-transform:none">(optional)</span></label><input id="fGtp" placeholder="GTP-2026-014">
+  <label>Job # <span style="text-transform:none">(optional)</span></label><input id="fGtp" placeholder="e.g. 2026-014">
   <label>Buildings <span style="text-transform:none">(comma separated — blank for single building)</span></label>
   <input id="fBldgs" placeholder="1B, 2A, 3A, 5A" autocapitalize="characters">
   <label>Unit numbering</label>
@@ -163,6 +163,7 @@ button:disabled{opacity:.4}
   <button class="primary" style="width:100%;padding:17px" id="btnStart">START SHOOTING</button>
   <button class="ghost" style="width:100%;margin-top:9px" id="btnResume">Resume saved job</button>
   <div class="muted" id="resumeInfo" style="margin-top:10px;text-align:center"></div>
+  <button class="ghost" style="width:100%;margin-top:16px" id="btnCfgFromSetup">⚙ Settings &amp; OneDrive</button>
  </div>
 </div>
 
@@ -227,6 +228,7 @@ button:disabled{opacity:.4}
     <button class="ghost" id="btnSignOut">Sign out</button>
    </div>
    <div class="muted" id="authState" style="margin-top:10px">Not signed in.</div>
+   <div id="lastUp" style="margin-top:10px"></div>
    <div class="muted" id="redirNote" style="margin-top:10px"></div>
    <div class="flag warn" id="standaloneNote" style="display:none">
     Running from the home screen. If Microsoft sign-in bounces to Safari and does not come back,
@@ -256,7 +258,7 @@ button:disabled{opacity:.4}
 <script>
 "use strict";
 /* ============================================================
-   GTP FIELD CAPTURE
+   FIELD CAM
    Guided unit-by-unit job-site photo capture that emits the
    photo_map consumed by equipment-inventory-builder / photo-report.
    ============================================================ */
@@ -264,7 +266,7 @@ button:disabled{opacity:.4}
 const $ = id => document.getElementById(id);
 const pad = (n,w) => String(n).padStart(w,'0');
 
-/* ---------- the GTP shooting order (skill-defined) ---------- */
+/* ---------- the shooting order (defined by the assessment skills) ---------- */
 const STEPS = [
   {k:'number',    label:'UNIT #',    type:'chalk_number', req:true,  multi:false,
    title:'GREEN CHALK UNIT NUMBER',
@@ -320,7 +322,7 @@ let busy = false;
 /* ---------- IndexedDB ---------- */
 function openDB(){
   return new Promise((res,rej)=>{
-    const r = indexedDB.open('gtpcam',1);
+    const r = indexedDB.open('fieldcam',1);
     r.onupgradeneeded = e => {
       const d = e.target.result;
       if(!d.objectStoreNames.contains('photos')) d.createObjectStore('photos',{keyPath:'id'});
@@ -344,9 +346,9 @@ const saveState = () => idbPut('kv',{k:'state',v:S});
 const loadState = () => idbGet('kv','state').then(r=>(r&&r.v)?r.v:null);
 
 function loadCfg(){
-  try{ return JSON.parse(localStorage.getItem('gtpcfg')||'{}'); }catch(e){ return {}; }
+  try{ return JSON.parse(localStorage.getItem('fieldcamcfg')||'{}'); }catch(e){ return {}; }
 }
-function saveCfg(c){ localStorage.setItem('gtpcfg', JSON.stringify(c)); }
+function saveCfg(c){ localStorage.setItem('fieldcamcfg', JSON.stringify(c)); }
 
 /* ---------- job model ----------
    S = { insured, claim, gtp, started, buildings[], reset, resPx,
@@ -690,7 +692,7 @@ function closeSheet(){ $('sheet').classList.remove('on'); }
 $('sheet').addEventListener('click', e=>{ if(e.target.id==='sheet') closeSheet(); });
 
 /* ============================================================
-   PHOTO MAP  (the deliverable the GTP skills consume)
+   PHOTO MAP  (the deliverable the assessment skills consume)
    ============================================================ */
 async function buildMap(){
   const all = (await idbAll('photos')).sort((a,b)=>a.seq-b.seq);
@@ -713,7 +715,7 @@ async function buildMap(){
 async function mapJson(){
   const photo_map = await buildMap();
   return JSON.stringify({
-    source:'GTP Field Capture',
+    source:'Field Cam',
     generated:new Date().toISOString(),
     claim:{insured:S.insured, claim_no:S.claim, gtp_no:S.gtp||'',
            started:S.started, buildings:S.buildings, unit_numbering:S.reset},
@@ -1062,6 +1064,14 @@ async function uploadAll(){
   const log = m => { logEl.textContent += m+'\n'; logEl.scrollTop = 1e6; };
 
   try{
+    /* Say WHICH account before moving a single byte. "It uploaded fine" is
+       useless if the files went to a different OneDrive than the one you sync. */
+    try{
+      const t = await token();
+      const me = await (await fetch(GRAPH+'/me',{headers:{Authorization:'Bearer '+t}})).json();
+      log('account: '+(me.userPrincipalName||me.mail||me.displayName||'unknown'));
+    }catch(e){ log('account: could not read — '+e.message); }
+
     const base = (cfg.folder || 'Documents/Claude/Projects/Assessment reports')
                    .replace(/^\/+|\/+$/g,'');
     const root = base+'/'+folderName();
@@ -1091,11 +1101,29 @@ async function uploadAll(){
     await putSmall(root+'/PHOTO_MAP.csv',  new Blob([await mapCsv()],{type:'text/csv'}),'text/csv');
     log('photo map written');
 
-    box.insertAdjacentHTML('beforeend', fail
+    /* Ask OneDrive where it actually put them and hand back a tappable link.
+       A green banner you cannot verify is worse than no banner. */
+    let url = '';
+    try{
+      const r = await gfetch(`${GRAPH}/me/drive/root:/${gpath(root)}`);
+      url = (await r.json()).webUrl || '';
+      cfg.lastUpload = url; cfg.lastUploadAt = new Date().toISOString(); saveCfg(cfg);
+      log('landed: '+url);
+    }catch(e){ log('could not read back the folder link — '+e.message); }
+
+    const link = url
+      ? `<a href="${url}" target="_blank" rel="noopener"
+           style="display:block;margin-top:10px;padding:14px;border-radius:10px;
+                  background:var(--accent2);color:#04121e;font-weight:800;
+                  text-align:center;text-decoration:none">OPEN THE FOLDER IN ONEDRIVE →</a>`
+      : '';
+
+    box.insertAdjacentHTML('beforeend', (fail
       ? `<div class="flag warn">Finished with ${fail} failure(s). Tap ONEDRIVE again to retry —
          successful files are simply overwritten.</div>`
-      : `<div class="flag ok">All ${all.length} photos plus PHOTO_MAP.json / .csv are in
-         OneDrive under <b>${root}</b>.</div>`);
+      : `<div class="flag ok">All ${all.length} photos plus PHOTO_MAP.json / .csv uploaded to
+         <b>${root}</b>. The photos are inside the <b>Bldg-…</b> subfolders, not loose in
+         that folder.</div>`) + link);
   }catch(e){
     box.insertAdjacentHTML('beforeend', `<div class="flag bad">Upload stopped: ${e.message}</div>`);
   }
@@ -1143,19 +1171,33 @@ $('selBldg').onchange  = async e=>{ S.bldg=e.target.value; S.unit=null; await sa
 $('btnBackCam').onclick= async ()=>{ show('scCam'); await startCam(); renderCam(); };
 $('btnZip').onclick    = exportZip;
 $('btnUp').onclick     = uploadAll;
-$('btnCfg').onclick    = ()=>{ const c=loadCfg();
+let cfgReturn = 'scRev';        // where ← Back goes; set by whoever opened Settings
+function openCfg(from){
+  cfgReturn = from;
+  const c = loadCfg();
   $('cfgClient').value = c.clientId||'';
   $('cfgFolder').value = c.folder||'Documents/Claude/Projects/Assessment reports';
+  $('lastUp').innerHTML = c.lastUpload
+    ? `<a href="${c.lastUpload}" target="_blank" rel="noopener"
+         style="display:block;padding:12px;border-radius:10px;background:var(--accent2);
+                color:#04121e;font-weight:800;text-align:center;text-decoration:none">
+         OPEN LAST UPLOAD IN ONEDRIVE →</a>
+       <div class="muted" style="margin-top:6px">Uploaded ${new Date(c.lastUploadAt).toLocaleString()}</div>`
+    : '<div class="muted">No upload yet — the folder link appears here after the first one.</div>';
   idbAll('photos').then(a=>$('cfgStats').innerHTML =
     `${S?S.units.length:0} units · ${a.length} photos · ${(a.reduce((x,p)=>x+p.blob.size,0)/1048576).toFixed(1)} MB on this phone`);
   $('redirNote').innerHTML = 'Redirect URI to register in Azure:<br><b style="word-break:break-all">'
     + redirectUri() + '</b>';
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   $('standaloneNote').style.display = standalone ? 'block' : 'none';
-  paintAuth(); show('scCfg'); };
+  paintAuth(); show('scCfg');
+}
+$('btnCfg').onclick          = ()=>openCfg('scRev');
+$('btnCfgFromSetup').onclick = ()=>openCfg('scSetup');
 $('btnCfgBack').onclick= async ()=>{ const c=loadCfg();
   c.clientId=$('cfgClient').value.trim(); c.folder=$('cfgFolder').value.trim(); saveCfg(c);
-  show('scRev'); await renderReview(); };
+  show(cfgReturn);
+  if(cfgReturn==='scRev') await renderReview(); };
 $('btnSignIn').onclick = ()=>{ const c=loadCfg(); c.clientId=$('cfgClient').value.trim();
   c.folder=$('cfgFolder').value.trim(); saveCfg(c); signIn(); };
 $('btnSignOut').onclick= ()=>{ const c=loadCfg(); delete c.tok; delete c.rtok; delete c.exp;
