@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e1116">
+<title>GTP Field Capture</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#0e1116; --panel:#171c24; --panel2:#1f2630; --line:#2c3542;
+  --txt:#e8edf4; --dim:#8fa0b5; --accent:#2f9e5e; --accent2:#3ea8ff;
+  --warn:#e0a02c; --bad:#e05252; --chalk:#4ade80;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  overscroll-behavior:none}
+body{display:flex;flex-direction:column;
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+.screen{display:none;flex:1;min-height:0;flex-direction:column}
+.screen.on{display:flex}
+h1{font-size:19px;margin:0 0 2px}
+h2{font-size:14px;margin:18px 0 8px;color:var(--dim);text-transform:uppercase;letter-spacing:.09em}
+label{display:block;font-size:11px;color:var(--dim);text-transform:uppercase;
+  letter-spacing:.08em;margin:12px 0 5px}
+input,select,textarea{width:100%;padding:13px;font-size:16px;background:var(--panel2);
+  color:var(--txt);border:1px solid var(--line);border-radius:10px;font-family:inherit}
+input:focus,select:focus{outline:none;border-color:var(--accent2)}
+button{font-family:inherit;font-size:15px;font-weight:600;border:none;border-radius:10px;
+  padding:14px 16px;background:var(--panel2);color:var(--txt);cursor:pointer;
+  border:1px solid var(--line)}
+button:active{transform:scale(.97)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.blue{background:var(--accent2);border-color:var(--accent2);color:#04121e}
+button.ghost{background:transparent}
+button:disabled{opacity:.4}
+.pad{padding:18px}
+.scroll{overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1;min-height:0}
+.row{display:flex;gap:8px}
+.row>*{flex:1}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px}
+.muted{color:var(--dim);font-size:13px;line-height:1.5}
+.pill{display:inline-block;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:700;
+  background:var(--panel2);border:1px solid var(--line)}
+
+/* ---------- capture screen ---------- */
+#topbar{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--panel);
+  border-bottom:1px solid var(--line);flex:0 0 auto}
+#topbar .who{flex:1;min-width:0}
+#topbar .who b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#topbar .who span{font-size:11px;color:var(--dim)}
+#unitBadge{background:var(--accent);color:#fff;border-radius:9px;padding:6px 11px;
+  font-weight:800;font-size:15px;text-align:center;line-height:1.15;white-space:nowrap}
+#unitBadge small{display:block;font-size:9px;font-weight:600;opacity:.85;letter-spacing:.08em}
+
+#stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
+#video{width:100%;height:100%;object-fit:cover;display:block}
+#noCam{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+  text-align:center;padding:26px;color:var(--dim);font-size:13px;line-height:1.6}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .18s}
+#stepBanner{position:absolute;left:0;right:0;top:0;padding:10px 14px;
+  background:linear-gradient(180deg,rgba(0,0,0,.82),rgba(0,0,0,0))}
+#stepBanner b{font-size:15px;display:block}
+#stepBanner span{font-size:12px;color:#cfe0ee}
+#shotCount{position:absolute;right:10px;bottom:10px;background:rgba(0,0,0,.65);
+  border-radius:8px;padding:5px 9px;font-size:12px;font-weight:700}
+
+#steps{display:flex;gap:6px;overflow-x:auto;padding:9px 12px;background:var(--panel);
+  border-top:1px solid var(--line);flex:0 0 auto;scrollbar-width:none}
+#steps::-webkit-scrollbar{display:none}
+.step{flex:0 0 auto;padding:7px 12px;border-radius:99px;font-size:12px;font-weight:700;
+  background:var(--panel2);border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+.step.done{color:var(--chalk);border-color:#265c3c}
+.step.cur{background:var(--accent2);color:#04121e;border-color:var(--accent2)}
+.step .n{opacity:.65;font-weight:600}
+
+#thumbs{display:flex;gap:6px;overflow-x:auto;padding:8px 12px;background:var(--bg);
+  flex:0 0 auto;min-height:62px;scrollbar-width:none}
+#thumbs::-webkit-scrollbar{display:none}
+.th{position:relative;flex:0 0 auto;width:52px;height:52px;border-radius:8px;overflow:hidden;
+  border:1px solid var(--line)}
+.th img{width:100%;height:100%;object-fit:cover}
+.th i{position:absolute;left:0;right:0;bottom:0;font-style:normal;font-size:8px;
+  background:rgba(0,0,0,.7);text-align:center;padding:1px 0;letter-spacing:.03em}
+.th b{position:absolute;top:0;right:0;background:var(--bad);color:#fff;font-size:11px;
+  width:16px;height:16px;line-height:16px;text-align:center;border-bottom-left-radius:7px}
+
+#controls{flex:0 0 auto;padding:8px 12px 12px;background:var(--panel);border-top:1px solid var(--line)}
+#shutterRow{display:flex;align-items:center;gap:12px;margin-bottom:9px}
+#shutter{width:74px;height:74px;border-radius:50%;background:#fff;border:5px solid var(--panel2);
+  box-shadow:0 0 0 3px #fff;flex:0 0 auto;padding:0}
+#shutter:active{background:#c9d4e0}
+#shutter.hi{background:var(--warn);box-shadow:0 0 0 3px var(--warn)}
+.sideBtn{flex:1;font-size:13px;padding:12px 6px}
+#advanceBtn{background:var(--accent2);border-color:var(--accent2);color:#04121e}
+
+/* ---------- sheet ---------- */
+#sheet{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;
+  align-items:flex-end;z-index:50}
+#sheet.on{display:flex}
+#sheetIn{background:var(--panel);width:100%;max-height:88%;overflow-y:auto;
+  border-radius:18px 18px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom))}
+.scopeGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
+.scopeGrid button{padding:16px 8px;font-size:14px;line-height:1.3}
+.scopeGrid button small{display:block;font-weight:500;font-size:10px;color:var(--dim);margin-top:3px}
+
+/* ---------- review ---------- */
+.ustrip{display:flex;gap:5px;overflow-x:auto;margin-top:9px;scrollbar-width:none}
+.ustrip::-webkit-scrollbar{display:none}
+.ustrip img{width:42px;height:42px;object-fit:cover;border-radius:6px;flex:0 0 auto;border:1px solid var(--line)}
+.flag{font-size:12px;padding:7px 10px;border-radius:8px;margin-top:8px;line-height:1.45}
+.flag.warn{background:#3a2e12;color:#f2cd80;border:1px solid #6b5320}
+.flag.bad{background:#3d1c1c;color:#f2a0a0;border:1px solid #6e2d2d}
+.flag.ok{background:#123024;color:#8fe0b3;border:1px solid #245c3f}
+#progWrap{height:6px;background:var(--panel2);border-radius:99px;overflow:hidden;margin-top:9px}
+#progBar{height:100%;width:0;background:var(--accent);transition:width .25s}
+.log{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--dim);
+  max-height:150px;overflow-y:auto;white-space:pre-wrap;margin-top:9px;line-height:1.55}
+.tabs{display:flex;gap:6px;padding:10px 12px;background:var(--panel);border-top:1px solid var(--line);flex:0 0 auto}
+.tabs button{flex:1;font-size:12px;padding:11px 4px}
+.tabs button.on{background:var(--accent2);border-color:var(--accent2);color:#04121e}
+</style>
+</head>
+<body>
+
+<!-- ============ SETUP ============ -->
+<div class="screen on" id="scSetup">
+ <div class="scroll pad">
+  <h1>GTP Field Capture</h1>
+  <div class="muted">Guided unit-by-unit photo capture. Writes the photo map as you shoot, so no
+  vision pass has to guess unit boundaries later.</div>
+
+  <h2>Claim</h2>
+  <label>Insured</label><input id="fInsured" placeholder="SECURE ITADS" autocapitalize="characters">
+  <label>Claim #</label><input id="fClaim" placeholder="C26-2191" autocapitalize="characters">
+  <label>GTP # <span style="text-transform:none">(optional)</span></label><input id="fGtp" placeholder="GTP-2026-014">
+  <label>Buildings <span style="text-transform:none">(comma separated — blank for single building)</span></label>
+  <input id="fBldgs" placeholder="1B, 2A, 3A, 5A" autocapitalize="characters">
+  <label>Unit numbering</label>
+  <select id="fReset">
+   <option value="building">Restart at 1 in each building</option>
+   <option value="continuous">Continuous across the whole job</option>
+  </select>
+
+  <h2>Capture</h2>
+  <div class="card">
+   <label style="margin-top:0">Photo resolution</label>
+   <select id="fRes">
+    <option value="2600">High — 2600 px long edge (recommended)</option>
+    <option value="3400">Max — 3400 px long edge (bigger files)</option>
+    <option value="1800">Light — 1800 px long edge (weak signal)</option>
+   </select>
+   <div class="muted" style="margin-top:9px">Nameplate steps always capture at max resolution
+   regardless of this setting — serials have to stay legible.</div>
+  </div>
+
+  <div style="height:14px"></div>
+  <button class="primary" style="width:100%;padding:17px" id="btnStart">START SHOOTING</button>
+  <button class="ghost" style="width:100%;margin-top:9px" id="btnResume">Resume saved job</button>
+  <div class="muted" id="resumeInfo" style="margin-top:10px;text-align:center"></div>
+ </div>
+</div>
+
+<!-- ============ CAPTURE ============ -->
+<div class="screen" id="scCam">
+ <div id="topbar">
+  <div class="who"><b id="tInsured">—</b><span id="tClaim">—</span></div>
+  <select id="selBldg" style="width:88px;flex:0 0 auto;padding:8px;font-size:13px"></select>
+  <div id="unitBadge"><small>UNIT</small><span id="tUnit">—</span></div>
+ </div>
+
+ <div id="stage">
+  <video id="video" playsinline muted autoplay></video>
+  <div id="noCam"></div>
+  <div id="flash"></div>
+  <div id="stepBanner"><b id="bTitle">—</b><span id="bHint">—</span></div>
+  <div id="shotCount">0</div>
+ </div>
+
+ <div id="steps"></div>
+ <div id="thumbs"></div>
+
+ <div id="controls">
+  <div id="shutterRow">
+   <button class="sideBtn" id="btnSite">SITE<br>SHOT</button>
+   <button id="shutter" aria-label="Take photo"></button>
+   <button class="sideBtn" id="advanceBtn">NEXT<br>STEP →</button>
+  </div>
+  <div class="row">
+   <button class="sideBtn" id="btnNewUnit">＋ NEW UNIT</button>
+   <button class="sideBtn" id="btnCloseUnit">CLOSE UNIT</button>
+   <button class="sideBtn" id="btnReview">REVIEW</button>
+  </div>
+ </div>
+</div>
+
+<!-- ============ REVIEW ============ -->
+<div class="screen" id="scRev">
+ <div class="scroll pad" id="revBody"></div>
+ <div class="tabs">
+  <button id="btnBackCam">← CAMERA</button>
+  <button id="btnZip">EXPORT ZIP</button>
+  <button id="btnUp">ONEDRIVE</button>
+  <button id="btnCfg">SETTINGS</button>
+ </div>
+</div>
+
+<!-- ============ SETTINGS ============ -->
+<div class="screen" id="scCfg">
+ <div class="scroll pad">
+  <h1>Settings</h1>
+  <h2>OneDrive</h2>
+  <div class="card">
+   <label style="margin-top:0">Azure application (client) ID</label>
+   <input id="cfgClient" placeholder="00000000-0000-0000-0000-000000000000">
+   <label>Destination folder in OneDrive</label>
+   <input id="cfgFolder" placeholder="Documents/Claude/Projects/Assessment reports">
+   <div class="muted" style="margin-top:10px">A folder named
+   <b>&lt;Insured&gt;_&lt;Claim&gt;_Photos</b> is created inside it for each job.</div>
+   <div class="row" style="margin-top:12px">
+    <button class="blue" id="btnSignIn">Sign in</button>
+    <button class="ghost" id="btnSignOut">Sign out</button>
+   </div>
+   <div class="muted" id="authState" style="margin-top:10px">Not signed in.</div>
+   <div class="muted" id="redirNote" style="margin-top:10px"></div>
+   <div class="flag warn" id="standaloneNote" style="display:none">
+    Running from the home screen. If Microsoft sign-in bounces to Safari and does not come back,
+    open the app in a normal Safari tab to sign in and upload — or just use EXPORT ZIP, which
+    needs no sign-in at all.
+   </div>
+  </div>
+  <h2>Job data</h2>
+  <div class="card">
+   <div class="muted" id="cfgStats">—</div>
+   <button class="ghost" style="width:100%;margin-top:12px" id="btnEditClaim">Edit claim details</button>
+   <button class="ghost" style="width:100%;margin-top:8px;color:var(--bad);border-color:#5a2a2a"
+     id="btnWipe">Delete this job from the phone</button>
+   <div class="muted" style="margin-top:10px">Export or upload first. Deleting is permanent.</div>
+  </div>
+  <div style="height:20px"></div>
+  <button style="width:100%" id="btnCfgBack">← Back</button>
+ </div>
+</div>
+
+<!-- ============ SHEET ============ -->
+<div id="sheet"><div id="sheetIn"></div></div>
+
+<input type="file" id="filePick" accept="image/*" capture="environment" style="display:none">
+<canvas id="cv" style="display:none"></canvas>
+
+<script>
+"use strict";
+/* ============================================================
+   GTP FIELD CAPTURE
+   Guided unit-by-unit job-site photo capture that emits the
+   photo_map consumed by equipment-inventory-builder / photo-report.
+   ============================================================ */
+
+const $ = id => document.getElementById(id);
+const pad = (n,w) => String(n).padStart(w,'0');
+
+/* ---------- the GTP shooting order (skill-defined) ---------- */
+const STEPS = [
+  {k:'number',    label:'UNIT #',    type:'chalk_number', req:true,  multi:false,
+   title:'GREEN CHALK UNIT NUMBER',
+   hint:'Hand-written green chalk on the equipment cabinet. Not a printed building placard.'},
+  {k:'nameplate', label:'DATA TAG',  type:'nameplate',    req:true,  multi:true, hires:true,
+   title:'NAMEPLATE / DATA PLATE',
+   hint:'Fill the frame. Make · model · serial · tonnage · voltage · refrigerant must be readable.'},
+  {k:'overview',  label:'OVERVIEW',  type:'condition',    req:true,  multi:true,
+   title:'UNIT OVERVIEW',
+   hint:'Full unit. Shoot all accessible sides plus the top.'},
+  {k:'damage',    label:'DAMAGE',    type:'condition',    req:false, multi:true,
+   title:'DAMAGE / CONDITION',
+   hint:'Close-ups of every damaged component. Coil, top panel, guards, cabinet, ductwork.'},
+  {k:'ahu',       label:'AHU',       type:'ahu',          req:false, multi:true,
+   title:'SPLIT-SYSTEM INDOOR AHU',
+   hint:'Matching indoor air handler. Belongs to THIS unit — not a new one.'},
+  {k:'controls',  label:'CTRL/MISC', type:'condition',    req:false, multi:true,
+   title:'CONTROLS · DISCONNECT · CURB',
+   hint:'Thermostat, DDC panel, comm card, disconnect, curb, roof penetration.'},
+  {k:'scope',     label:'SCOPE',     type:'chalk_scope',  req:true,  multi:false,
+   title:'GREEN CHALK SCOPE CODE',
+   hint:'The closing chalk mark. This ends the unit block.'}
+];
+/* THE CHALK-CODE LEGEND — canonical copy lives in equipment-inventory-builder's
+   SKILL.md. These codes become the RECOMMENDATION cell verbatim, so this list must
+   match the legend exactly; read_photo_map.py rejects any code not in it.
+   qty: true  = a number in parentheses carries through to pricing, e.g. CC(2).
+   Codes COMBINE — T FG CC is three codes on one unit, not one code. */
+const SCOPES = [
+  ['UNIT',   'R&R complete unit',            false],
+  ['SYS',    'R&R full system',              false],
+  ['CC',     'R&R condenser coil',           true ],
+  ['T',      'R&R top',                      false],
+  ['FG',     'R&R fan guard',                true ],
+  ['WC',     'Wash & comb condenser coil',   false],
+  ['DUCT INS','+ duct insulation & jacket',  false],
+  ['OA SCREEN','R&R outside air screen',     false],
+  ['ND',     'No damage',                    false],
+  ['OOS',    'Out of service — EXCLUDED',    false],
+  ['NT',     'No tag / plate unreadable',    false],
+  ['TBD',    'Undecided — flag for review',  false]
+];
+/* Codes that mean "this unit is out of the claim" and cannot combine with repair scope. */
+const EXCLUSIVE = new Set(['ND','OOS','TBD']);
+
+/* ---------- state ---------- */
+let S = null;               // job state (persisted)
+let db = null;
+let stream = null, track = null;
+let stepIdx = 0;
+let busy = false;
+
+/* ---------- IndexedDB ---------- */
+function openDB(){
+  return new Promise((res,rej)=>{
+    const r = indexedDB.open('gtpcam',1);
+    r.onupgradeneeded = e => {
+      const d = e.target.result;
+      if(!d.objectStoreNames.contains('photos')) d.createObjectStore('photos',{keyPath:'id'});
+      if(!d.objectStoreNames.contains('kv'))     d.createObjectStore('kv',{keyPath:'k'});
+    };
+    r.onsuccess = e => res(e.target.result);
+    r.onerror   = e => rej(e.target.error);
+  });
+}
+const tx = (store,mode) => db.transaction(store,mode).objectStore(store);
+function idbPut(store,val){ return new Promise((res,rej)=>{ const q=tx(store,'readwrite').put(val);
+  q.onsuccess=()=>res(); q.onerror=e=>rej(e.target.error); }); }
+function idbGet(store,key){ return new Promise((res,rej)=>{ const q=tx(store,'readonly').get(key);
+  q.onsuccess=e=>res(e.target.result); q.onerror=e=>rej(e.target.error); }); }
+function idbAll(store){ return new Promise((res,rej)=>{ const q=tx(store,'readonly').getAll();
+  q.onsuccess=e=>res(e.target.result||[]); q.onerror=e=>rej(e.target.error); }); }
+function idbClear(store){ return new Promise((res,rej)=>{ const q=tx(store,'readwrite').clear();
+  q.onsuccess=()=>res(); q.onerror=e=>rej(e.target.error); }); }
+
+const saveState = () => idbPut('kv',{k:'state',v:S});
+const loadState = () => idbGet('kv','state').then(r=>(r&&r.v)?r.v:null);
+
+function loadCfg(){
+  try{ return JSON.parse(localStorage.getItem('gtpcfg')||'{}'); }catch(e){ return {}; }
+}
+function saveCfg(c){ localStorage.setItem('gtpcfg', JSON.stringify(c)); }
+
+/* ---------- job model ----------
+   S = { insured, claim, gtp, started, buildings[], reset, resPx,
+         bldg, unit, seq, units:[ {building,unit,scope,photos:[photoId]} ] }
+   photo record = { id, seq, file, building, unit, type, subtype, step, note, ts, blob, up }
+------------------------------------------------------------- */
+function newJob(f){
+  return {
+    insured:f.insured, claim:f.claim, gtp:f.gtp,
+    started:new Date().toISOString(),
+    buildings:f.buildings, reset:f.reset, resPx:f.resPx,
+    bldg:f.buildings[0], unit:null, seq:0, units:[]
+  };
+}
+const curUnit = () => S.units.find(u=>u.building===S.bldg && u.unit===S.unit) || null;
+function nextUnitNo(){
+  const pool = S.reset==='building' ? S.units.filter(u=>u.building===S.bldg) : S.units;
+  const nums = pool.map(u=>parseInt(u.unit,10)).filter(n=>!isNaN(n));
+  return String(nums.length ? Math.max(...nums)+1 : 1);
+}
+
+/* ---------- filename ----------
+   0042_B3A_U007_03-damage.jpg
+   4-digit global seq guarantees filename sort === shooting order,
+   which is what photo-report relies on.                              */
+function mkName(seq,bldg,unit,step,n){
+  const b = bldg ? 'B'+String(bldg).replace(/[^A-Za-z0-9]/g,'') : 'BSITE';
+  const u = unit ? 'U'+pad(String(unit).replace(/[^A-Za-z0-9]/g,''),3) : 'USITE';
+  return `${pad(seq,4)}_${b}_${u}_${pad(n,2)}-${step}.jpg`;
+}
+
+/* ============================================================
+   CAMERA
+   ============================================================ */
+async function startCam(){
+  const px = S ? S.resPx : 2600;
+  const tries = [
+    {video:{facingMode:{exact:'environment'},width:{ideal:px},height:{ideal:px}}},
+    {video:{facingMode:'environment',width:{ideal:px},height:{ideal:px}}},
+    {video:true}
+  ];
+  for(const c of tries){
+    try{
+      stream = await navigator.mediaDevices.getUserMedia(c);
+      $('video').srcObject = stream;
+      track = stream.getVideoTracks()[0];
+      $('noCam').style.display='none';
+      return true;
+    }catch(e){ /* next */ }
+  }
+  $('noCam').style.display='flex';
+  $('noCam').innerHTML = 'Live camera unavailable.<br><br>The shutter will open your phone\'s '+
+    'camera app instead — everything else works the same.<br><br>'+
+    '<span style="font-size:11px">(Live preview needs an https:// page and camera permission.)</span>';
+  return false;
+}
+function stopCam(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; track=null; } }
+
+/* capture from live video -> jpeg blob at target long edge */
+function grabFrame(maxPx){
+  const v = $('video');
+  const vw = v.videoWidth, vh = v.videoHeight;
+  if(!vw || !vh) return null;
+  const sc = Math.min(1, maxPx/Math.max(vw,vh));
+  const cv = $('cv');
+  cv.width = Math.round(vw*sc); cv.height = Math.round(vh*sc);
+  cv.getContext('2d').drawImage(v,0,0,cv.width,cv.height);
+  return new Promise(r=>cv.toBlob(r,'image/jpeg',0.9));
+}
+/* re-encode a file from the native camera, baking in EXIF rotation via createImageBitmap */
+async function fileToJpeg(file,maxPx){
+  const bmp = await createImageBitmap(file,{imageOrientation:'from-image'});
+  const sc = Math.min(1, maxPx/Math.max(bmp.width,bmp.height));
+  const cv = $('cv');
+  cv.width = Math.round(bmp.width*sc); cv.height = Math.round(bmp.height*sc);
+  cv.getContext('2d').drawImage(bmp,0,0,cv.width,cv.height);
+  bmp.close();
+  return new Promise(r=>cv.toBlob(r,'image/jpeg',0.9));
+}
+
+/* ============================================================
+   CAPTURE FLOW
+   ============================================================ */
+function stepDef(){ return STEPS[stepIdx]; }
+
+async function shoot(opts){
+  if(busy) return; busy = true;
+  try{
+    const o = opts||{};
+    const st = o.site ? {k:'site',type:'skip',label:'SITE'} : stepDef();
+    const hires = !!st.hires;
+    const maxPx = hires ? 4000 : S.resPx;
+
+    let blob = null;
+    if(stream && !o.forceFile){
+      blob = await grabFrame(maxPx);
+      $('flash').style.opacity=.85; setTimeout(()=>$('flash').style.opacity=0,60);
+    }
+    if(!blob){ busy=false; return pickFile(o); }
+    await storeShot(blob, st, o);
+  }catch(e){ alert('Capture failed: '+e.message); }
+  busy = false;
+}
+
+let pendingOpts = null;
+function pickFile(o){ pendingOpts = o||{}; $('filePick').value=''; $('filePick').click(); }
+$('filePick').addEventListener('change', async e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const o = pendingOpts||{};
+  const st = o.site ? {k:'site',type:'skip',label:'SITE'} : stepDef();
+  busy = true;
+  try{
+    const blob = await fileToJpeg(f, st.hires ? 4000 : S.resPx);
+    await storeShot(blob, st, o);
+  }catch(err){ alert('Import failed: '+err.message); }
+  busy = false;
+});
+
+async function storeShot(blob, st, o){
+  const site = !!o.site;
+  if(!site && S.unit===null){ alert('Tap ＋ NEW UNIT first.'); return; }
+
+  const u = site ? null : curUnit();
+  S.seq++;
+  const n = site ? 1 : (u.photos.filter(p=>p.step===st.k).length + 1);
+  const rec = {
+    id: 'p'+pad(S.seq,4),
+    seq: S.seq,
+    file: mkName(S.seq, site?null:S.bldg, site?null:S.unit, st.k, n),
+    building: site ? (S.bldg||'') : S.bldg,
+    unit: site ? null : String(S.unit),
+    type: st.type,
+    subtype: st.k,
+    step: st.k,
+    note: o.note || defaultNote(st, o),
+    ts: new Date().toISOString(),
+    blob, up:false
+  };
+  await idbPut('photos', rec);
+  if(!site) u.photos.push({id:rec.id, step:st.k, file:rec.file});
+  await saveState();
+  renderCam();
+  navigator.vibrate && navigator.vibrate(18);
+
+  /* auto-advance off the single-shot steps */
+  if(!site && !st.multi && stepIdx < STEPS.length-1) setStep(stepIdx+1);
+}
+function defaultNote(st,o){
+  if(o && o.note) return o.note;
+  switch(st.k){
+    case 'number':    return 'green chalk reads '+S.unit;
+    case 'nameplate': return 'data plate';
+    case 'overview':  return 'unit overview';
+    case 'damage':    return 'damage detail';
+    case 'ahu':       return 'matching indoor AHU';
+    case 'controls':  return 'controls / disconnect / curb';
+    case 'scope':     { const n = pendingScopeNote || 'green chalk scope mark';
+                        pendingScopeNote = null; return n; }
+    default:          return 'establishing shot';
+  }
+}
+
+function setStep(i){ stepIdx = Math.max(0,Math.min(STEPS.length-1,i)); renderCam(); }
+
+/* ---------- new unit ---------- */
+function newUnit(){
+  const suggested = nextUnitNo();
+  sheet(`
+    <h1>New unit</h1>
+    <div class="muted">Building <b>${S.bldg||'—'}</b>. Use the number you chalked on the cabinet.</div>
+    <label>Unit number</label>
+    <input id="nuNum" value="${suggested}" inputmode="text" autocapitalize="characters">
+    <div class="muted" style="margin-top:8px">Exhaust fans, ventilators and other chalked
+    penetrations get their own unit (EF-1, OA-1 …).</div>
+    <div class="row" style="margin-top:16px">
+      <button class="ghost" onclick="closeSheet()">Cancel</button>
+      <button class="primary" id="nuGo">Start unit</button>
+    </div>`);
+  $('nuNum').focus(); $('nuNum').select();
+  $('nuGo').onclick = async ()=>{
+    const v = $('nuNum').value.trim().toUpperCase();
+    if(!v) return;
+    if(S.units.some(u=>u.building===S.bldg && u.unit===v)){
+      if(!confirm('Unit '+v+' already exists in building '+S.bldg+'. Switch to it and keep adding photos?')) return;
+    } else {
+      S.units.push({building:S.bldg, unit:v, scope:null, photos:[]});
+    }
+    S.unit = v; stepIdx = 0;
+    await saveState(); closeSheet(); renderCam();
+  };
+}
+
+/* ---------- close unit (scope chalk) ---------- */
+let pendingScopeNote = null;
+let scopePick = null;              // {code: qty|null} for the sheet currently open
+
+function scopeString(){
+  /* Rebuild the chalk code in legend order so it always reads the way JJ writes it. */
+  return SCOPES.filter(([c])=>c in scopePick)
+    .map(([c])=>{ const q=scopePick[c]; return q&&q>1 ? `${c}(${q})` : c; })
+    .join(' ');
+}
+function renderScopeSheet(){
+  const cur = scopeString();
+  const excl = Object.keys(scopePick).some(c=>EXCLUSIVE.has(c));
+  const btns = SCOPES.map(([c,d,q])=>{
+    const on = c in scopePick;
+    const dim = !on && excl && !EXCLUSIVE.has(c) ? ';opacity:.35' : '';
+    const qty = (on && q) ? `<span style="display:block;margin-top:5px;font-size:11px">
+        <b data-q="${c}" data-d="-1">−</b> qty ${scopePick[c]||1}
+        <b data-q="${c}" data-d="1">+</b></span>` : '';
+    return `<button data-c="${c}" style="${on?'background:var(--accent);border-color:var(--accent);color:#fff':''}${dim}">
+      ${c}<small style="${on?'color:#d8f5e4':''}">${d}</small>${qty}</button>`;
+  }).join('');
+  sheet(`
+    <h1>Close unit ${S.unit}</h1>
+    <div class="muted">Tap every code you chalked — they combine (T FG CC). Set a quantity on
+    CC and FG when there is more than one.</div>
+    <div class="card" style="margin-top:12px;text-align:center">
+      <div style="font-size:11px;color:var(--dim);letter-spacing:.09em">CHALK CODE</div>
+      <div style="font-size:19px;font-weight:800;margin-top:4px" id="scopePrev">${cur||'—'}</div>
+    </div>
+    <div class="scopeGrid" id="scopeGrid">${btns}</div>
+    <div class="row" style="margin-top:12px">
+      <button class="ghost" onclick="closeSheet()">Cancel</button>
+      <button class="primary" id="scopeGo" ${cur?'':'disabled'}>Set scope</button>
+    </div>`);
+
+  $('scopeGrid').querySelectorAll('b[data-q]').forEach(el=>{
+    el.onclick = e=>{ e.stopPropagation();
+      const c = el.dataset.q, d = +el.dataset.d;
+      scopePick[c] = Math.max(1, Math.min(20, (scopePick[c]||1) + d));
+      renderScopeSheet(); };
+  });
+  $('scopeGrid').querySelectorAll('button[data-c]').forEach(b=>{
+    b.onclick = ()=>{
+      const c = b.dataset.c, q = (SCOPES.find(s=>s[0]===c)||[])[2];
+      if(c in scopePick){ delete scopePick[c]; }
+      else if(EXCLUSIVE.has(c)){ scopePick = {[c]:null}; }   // ND/OOS/TBD stand alone
+      else { Object.keys(scopePick).forEach(k=>{ if(EXCLUSIVE.has(k)) delete scopePick[k]; });
+             scopePick[c] = q ? 1 : null; }
+      renderScopeSheet();
+    };
+  });
+  $('scopeGo').onclick = async ()=>{
+    const code = scopeString(); if(!code) return;
+    const u = curUnit(); if(u) u.scope = code;
+    await saveState();
+    closeSheet();
+    setStep(STEPS.findIndex(s=>s.k==='scope'));
+    pendingScopeNote = 'green chalk scope: '+code;
+    alert('Scope set to '+code+'.\n\nNow photograph the chalk mark, then tap ＋ NEW UNIT.');
+  };
+}
+function closeUnit(){
+  if(S.unit===null){ alert('No unit is open.'); return; }
+  const u = curUnit();
+  scopePick = {};
+  if(u && u.scope){
+    /* Re-opening a closed unit: restore the picks. Match longest codes first so
+       "OA SCREEN" is consumed before a bare "OA" could be, then blank the match
+       out of the string so nothing is counted twice. */
+    let rest = ' ' + u.scope.toUpperCase() + ' ';
+    SCOPES.map(s=>s[0]).sort((a,b)=>b.length-a.length).forEach(c=>{
+      const m = rest.match(new RegExp('\\s' + c.replace(/ /g,'\\s+') + '(?:\\((\\d+)\\))?\\s'));
+      if(m){ scopePick[c] = m[1] ? +m[1] : null; rest = rest.replace(m[0], '  '); }
+    });
+  }
+  renderScopeSheet();
+}
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+function renderCam(){
+  $('tInsured').textContent = S.insured || '—';
+  $('tClaim').textContent   = (S.claim||'—') + (S.gtp? ' · '+S.gtp : '');
+  $('tUnit').textContent    = S.unit===null ? '—' : S.unit;
+  $('unitBadge').style.background = S.unit===null ? '#4b5563' : 'var(--accent)';
+
+  const sel = $('selBldg');
+  if(sel.options.length !== S.buildings.length){
+    sel.innerHTML = S.buildings.map(b=>`<option value="${b}">${b}</option>`).join('');
+  }
+  sel.value = S.bldg;
+
+  const st = stepDef();
+  $('bTitle').textContent = st.title;
+  $('bHint').textContent  = st.hint;
+  $('shutter').className  = st.hires ? 'hi' : '';
+
+  const u = curUnit();
+  const counts = {};
+  (u? u.photos : []).forEach(p=>counts[p.step]=(counts[p.step]||0)+1);
+  $('shotCount').textContent = (u? u.photos.length : 0) + ' shot' + ((u&&u.photos.length===1)?'':'s');
+
+  $('steps').innerHTML = STEPS.map((s,i)=>{
+    const c = counts[s.k]||0;
+    const cls = i===stepIdx ? 'cur' : (c? 'done' : '');
+    return `<div class="step ${cls}" data-i="${i}">${s.label}${c?` <span class="n">${c}</span>`:''}${(s.req&&!c&&i!==stepIdx)?' <span class="n">•</span>':''}</div>`;
+  }).join('');
+  $('steps').querySelectorAll('.step').forEach(el=>el.onclick=()=>setStep(+el.dataset.i));
+  const cur = $('steps').querySelector('.cur'); if(cur) cur.scrollIntoView({inline:'center',block:'nearest'});
+
+  renderThumbs(u);
+}
+async function renderThumbs(u){
+  const box = $('thumbs');
+  box.innerHTML = '';
+  if(!u || !u.photos.length){
+    box.innerHTML = '<div class="muted" style="align-self:center">No photos on this unit yet.</div>';
+    return;
+  }
+  const list = u.photos.slice(-14);
+  for(const p of list){
+    const rec = await idbGet('photos',p.id);
+    if(!rec) continue;
+    const d = document.createElement('div');
+    d.className='th';
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(rec.blob);
+    img.onload = ()=>URL.revokeObjectURL(img.src);
+    d.appendChild(img);
+    const i = document.createElement('i'); i.textContent = p.step.slice(0,6).toUpperCase();
+    d.appendChild(i);
+    d.onclick = ()=>confirmDelete(rec, u);
+    box.appendChild(d);
+  }
+  box.scrollLeft = box.scrollWidth;
+}
+function confirmDelete(rec,u){
+  if(!confirm('Delete '+rec.file+' ?')) return;
+  tx('photos','readwrite').delete(rec.id);
+  u.photos = u.photos.filter(p=>p.id!==rec.id);
+  saveState().then(renderCam);
+}
+
+/* ---------- sheet helper ---------- */
+function sheet(html){ $('sheetIn').innerHTML = html; $('sheet').classList.add('on'); }
+function closeSheet(){ $('sheet').classList.remove('on'); }
+$('sheet').addEventListener('click', e=>{ if(e.target.id==='sheet') closeSheet(); });
+
+/* ============================================================
+   PHOTO MAP  (the deliverable the GTP skills consume)
+   ============================================================ */
+async function buildMap(){
+  const all = (await idbAll('photos')).sort((a,b)=>a.seq-b.seq);
+  const scopeBy = {};
+  S.units.forEach(u=>scopeBy[u.building+'|'+u.unit]=u.scope);
+  return all.map(p=>{
+    const e = {
+      file: p.file,
+      building: p.building||'',
+      unit: p.unit,
+      type: p.type,
+      note: p.note||''
+    };
+    if(p.subtype && p.subtype!==p.type) e.subtype = p.subtype;
+    if(p.type==='chalk_scope' && p.unit) e.scope = scopeBy[p.building+'|'+p.unit]||'';
+    e.captured = p.ts;
+    return e;
+  });
+}
+async function mapJson(){
+  const photo_map = await buildMap();
+  return JSON.stringify({
+    source:'GTP Field Capture',
+    generated:new Date().toISOString(),
+    claim:{insured:S.insured, claim_no:S.claim, gtp_no:S.gtp||'',
+           started:S.started, buildings:S.buildings, unit_numbering:S.reset},
+    units:S.units.map(u=>({building:u.building, unit:u.unit, scope:u.scope||'',
+                           photo_count:u.photos.length})),
+    boundaries_are_authoritative:true,
+    note:'Unit boundaries were recorded at capture time. Do NOT re-derive them with a vision pass.',
+    photo_map
+  },null,2);
+}
+async function mapCsv(){
+  const m = await buildMap();
+  const esc = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const head = ['file','building','unit','type','subtype','scope','note','captured'];
+  return [head.join(',')].concat(
+    m.map(r=>head.map(h=>esc(r[h])).join(','))
+  ).join('\r\n');
+}
+
+/* ---------- validation (mirrors photo-report Step 3 checks) ---------- */
+function validate(){
+  const out = [];
+  S.units.forEach(u=>{
+    const c = {}; u.photos.forEach(p=>c[p.step]=(c[p.step]||0)+1);
+    const id = `Bldg ${u.building} · Unit ${u.unit}`;
+    if(!u.photos.length){ out.push(['bad',`${id}: no photographs`]); return; }
+    if(!c.number)    out.push(['bad', `${id}: no chalk unit-number photo — the block has no opening boundary`]);
+    if(!c.nameplate) out.push(['warn',`${id}: no nameplate photo — flag as NO TAG if the plate is missing`]);
+    const cond = (c.overview||0)+(c.damage||0)+(c.controls||0);
+    if(!cond)        out.push(['bad', `${id}: only a number and a nameplate — every unit gets condition shots`]);
+    if(!u.scope)     out.push(['warn',`${id}: not closed — no scope code chosen`]);
+    else if(!c.scope)out.push(['warn',`${id}: scope ${u.scope} chosen but the chalk mark was not photographed`]);
+    if(u.scope==='ND' && (c.damage||0)>0)
+      out.push(['warn',`${id}: chalked ND but ${c.damage} damage photo(s) attached — scope and evidence disagree`]);
+    if(u.scope && u.scope!=='ND' && !(c.damage||0))
+      out.push(['warn',`${id}: chalked ${u.scope} but no damage close-ups`]);
+  });
+  const seen = new Set();
+  S.units.forEach(u=>{ const k=u.building+'|'+u.unit;
+    if(seen.has(k)) out.push(['bad',`Duplicate unit ${u.unit} in building ${u.building}`]); seen.add(k); });
+  return out;
+}
+
+/* ============================================================
+   REVIEW SCREEN
+   ============================================================ */
+async function renderReview(){
+  const total = S.units.reduce((a,u)=>a+u.photos.length,0);
+  const all = await idbAll('photos');
+  const site = all.filter(p=>!p.unit).length;
+  const flags = validate();
+  const bad = flags.filter(f=>f[0]==='bad').length;
+
+  let h = `<h1>${S.insured||'—'}</h1>
+    <div class="muted">${S.claim||''}${S.gtp?' · '+S.gtp:''} · started ${new Date(S.started).toLocaleDateString()}</div>
+    <div class="card" style="margin-top:14px">
+      <div class="row" style="text-align:center">
+        <div><div style="font-size:24px;font-weight:800">${S.units.length}</div><div class="muted">units</div></div>
+        <div><div style="font-size:24px;font-weight:800">${all.length}</div><div class="muted">photos</div></div>
+        <div><div style="font-size:24px;font-weight:800">${site}</div><div class="muted">site shots</div></div>
+      </div>
+    </div>`;
+
+  h += `<h2>Pre-flight</h2>`;
+  if(!flags.length){
+    h += `<div class="flag ok">All units open on a chalk number, carry condition photos and are
+          closed with a scope code. Blocks are contiguous by construction.</div>`;
+  } else {
+    h += flags.map(f=>`<div class="flag ${f[0]}">${f[0]==='bad'?'✕':'!'} ${f[1]}</div>`).join('');
+    if(bad) h += `<div class="muted" style="margin-top:9px">${bad} blocking issue${bad===1?'':'s'}.
+      Fix before the inventory is built — these are the exact defects that misattributed photos on C26-2191.</div>`;
+  }
+
+  h += `<h2>Units</h2>`;
+  if(!S.units.length) h += `<div class="muted">Nothing captured yet.</div>`;
+  S.buildings.forEach(b=>{
+    const us = S.units.filter(u=>u.building===b);
+    if(!us.length) return;
+    h += `<div class="muted" style="margin:14px 0 7px"><b>Building ${b}</b> — ${us.length} unit${us.length===1?'':'s'}</div>`;
+    us.forEach(u=>{
+      const c={}; u.photos.forEach(p=>c[p.step]=(c[p.step]||0)+1);
+      const chips = STEPS.filter(s=>c[s.k]).map(s=>`<span class="pill">${s.label} ${c[s.k]}</span>`).join(' ');
+      h += `<div class="card">
+        <div style="display:flex;align-items:center;gap:9px">
+          <div style="font-size:19px;font-weight:800">${u.unit}</div>
+          <div style="flex:1"></div>
+          <span class="pill" style="background:${u.scope?'#123024':'#3a2e12'};border-color:${u.scope?'#245c3f':'#6b5320'}">${u.scope||'OPEN'}</span>
+        </div>
+        <div style="margin-top:8px">${chips||'<span class="muted">no photos</span>'}</div>
+        <div class="ustrip" id="us_${b}_${u.unit}"></div>
+      </div>`;
+    });
+  });
+
+  h += `<h2>Output</h2>
+    <div class="card"><div class="muted">
+      <b>PHOTO_MAP.json</b> — unit boundaries recorded at capture. Feed it straight to
+      equipment-inventory-builder; no vision boundary pass needed.<br><br>
+      <b>PHOTO_MAP.csv</b> — same data, opens in Excel.<br><br>
+      <b>Photos</b> — named <code>seq_Bbldg_Uunit_nn-step.jpg</code> so filename sort equals
+      shooting order.
+    </div></div>
+    <div id="opBox"></div>
+    <div style="height:26px"></div>`;
+
+  $('revBody').innerHTML = h;
+
+  for(const b of S.buildings){
+    for(const u of S.units.filter(x=>x.building===b)){
+      const el = $(`us_${b}_${u.unit}`); if(!el) continue;
+      for(const p of u.photos.slice(0,10)){
+        const rec = await idbGet('photos',p.id); if(!rec) continue;
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(rec.blob);
+        img.onload = ()=>URL.revokeObjectURL(img.src);
+        el.appendChild(img);
+      }
+    }
+  }
+}
+
+/* ============================================================
+   ZIP EXPORT  (store-only, no dependencies)
+   ============================================================ */
+const CRCT = (()=>{ const t=new Uint32Array(256);
+  for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c = c&1 ? 0xEDB88320^(c>>>1) : c>>>1; t[n]=c>>>0; }
+  return t; })();
+function crc32(u8){ let c=0xFFFFFFFF; for(let i=0;i<u8.length;i++) c = CRCT[(c^u8[i])&0xFF]^(c>>>8);
+  return (c^0xFFFFFFFF)>>>0; }
+function dosTime(d){
+  return { t:((d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()/2))&0xFFFF,
+           d:(((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate())&0xFFFF };
+}
+async function makeZip(entries){
+  // entries: [{name, data:Uint8Array, date}]
+  const enc = new TextEncoder();
+  const chunks = [], central = [];
+  let off = 0;
+  const now = new Date();
+  for(const e of entries){
+    const nm = enc.encode(e.name);
+    const crc = crc32(e.data), len = e.data.length;
+    const {t,d} = dosTime(e.date||now);
+    const lf = new DataView(new ArrayBuffer(30));
+    lf.setUint32(0,0x04034b50,true); lf.setUint16(4,20,true); lf.setUint16(6,0x0800,true);
+    lf.setUint16(8,0,true); lf.setUint16(10,t,true); lf.setUint16(12,d,true);
+    lf.setUint32(14,crc,true); lf.setUint32(18,len,true); lf.setUint32(22,len,true);
+    lf.setUint16(26,nm.length,true); lf.setUint16(28,0,true);
+    chunks.push(new Uint8Array(lf.buffer), nm, e.data);
+    const cd = new DataView(new ArrayBuffer(46));
+    cd.setUint32(0,0x02014b50,true); cd.setUint16(4,20,true); cd.setUint16(6,20,true);
+    cd.setUint16(8,0x0800,true); cd.setUint16(10,0,true); cd.setUint16(12,t,true); cd.setUint16(14,d,true);
+    cd.setUint32(16,crc,true); cd.setUint32(20,len,true); cd.setUint32(24,len,true);
+    cd.setUint16(28,nm.length,true); cd.setUint16(30,0,true); cd.setUint16(32,0,true);
+    cd.setUint16(34,0,true); cd.setUint16(36,0,true); cd.setUint32(38,0,true);
+    cd.setUint32(42,off,true);
+    central.push(new Uint8Array(cd.buffer), nm);
+    off += 30 + nm.length + len;
+  }
+  const cdStart = off;
+  let cdLen = 0; central.forEach(c=>cdLen+=c.length);
+  const eo = new DataView(new ArrayBuffer(22));
+  eo.setUint32(0,0x06054b50,true); eo.setUint16(4,0,true); eo.setUint16(6,0,true);
+  eo.setUint16(8,entries.length,true); eo.setUint16(10,entries.length,true);
+  eo.setUint32(12,cdLen,true); eo.setUint32(16,cdStart,true); eo.setUint16(20,0,true);
+  return new Blob([...chunks,...central,new Uint8Array(eo.buffer)],{type:'application/zip'});
+}
+const u8 = async b => new Uint8Array(await b.arrayBuffer());
+
+async function exportZip(){
+  const box = $('opBox');
+  box.innerHTML = `<div class="card"><b>Building ZIP…</b><div id="progWrap"><div id="progBar"></div></div>
+    <div class="log" id="opLog"></div></div>`;
+  const logEl = $('opLog'), bar = $('progBar');
+  const log = m => { logEl.textContent += m+'\n'; logEl.scrollTop = 1e6; };
+
+  const root = folderName();
+  const all = (await idbAll('photos')).sort((a,b)=>a.seq-b.seq);
+  const entries = [];
+  const enc = new TextEncoder();
+  entries.push({name:root+'/PHOTO_MAP.json', data:enc.encode(await mapJson())});
+  entries.push({name:root+'/PHOTO_MAP.csv',  data:enc.encode(await mapCsv())});
+  let i=0;
+  for(const p of all){
+    const sub = p.unit ? 'Bldg-'+(p.building||'NA') : '_site';
+    entries.push({name:`${root}/${sub}/${p.file}`, data:await u8(p.blob), date:new Date(p.ts)});
+    i++; bar.style.width = (i/all.length*100)+'%';
+    if(i%25===0) log(`packed ${i}/${all.length}`);
+  }
+  log(`packed ${all.length}/${all.length}`);
+  const zip = await makeZip(entries);
+  const mb = (zip.size/1048576).toFixed(1);
+  log(`ZIP ready — ${mb} MB`);
+  const url = URL.createObjectURL(zip);
+  const a = document.createElement('a');
+  a.href = url; a.download = root+'.zip'; a.textContent='';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 60000);
+  box.insertAdjacentHTML('beforeend',
+    `<div class="flag ok">ZIP saved to your downloads (${mb} MB). Unzip it into the Assessment
+     reports folder — the folder is already named and structured.</div>`);
+}
+function folderName(){
+  const s = v => String(v||'').replace(/[^A-Za-z0-9 _-]/g,'').trim().replace(/\s+/g,'-');
+  return `${s(S.insured)||'JOB'}_${s(S.claim)||'NOCLAIM'}_Photos`;
+}
+
+/* ============================================================
+   ONEDRIVE  (OAuth2 PKCE + Microsoft Graph, no SDK)
+   ============================================================ */
+const GRAPH = 'https://graph.microsoft.com/v1.0';
+const AUTH  = 'https://login.microsoftonline.com/common/oauth2/v2.0';
+const SCOPE = 'openid profile offline_access User.Read Files.ReadWrite';
+/* Normalised so /app/ and /app/index.html produce the SAME redirect URI —
+   Azure requires an exact match and only one has to be registered. */
+const redirectUri = () => (location.origin + location.pathname).replace(/index\.html$/i,'');
+
+function b64url(buf){
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function pkce(){
+  const v = b64url(crypto.getRandomValues(new Uint8Array(48)));
+  const c = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v)));
+  return {v,c};
+}
+async function signIn(){
+  const cfg = loadCfg();
+  if(!cfg.clientId){ alert('Enter the Azure application (client) ID first.'); return; }
+  const {v,c} = await pkce();
+  sessionStorage.setItem('pkce_v', v);
+  const p = new URLSearchParams({
+    client_id:cfg.clientId, response_type:'code', redirect_uri:redirectUri(),
+    response_mode:'query', scope:SCOPE, code_challenge:c, code_challenge_method:'S256'
+  });
+  location.href = AUTH+'/authorize?'+p;
+}
+async function handleRedirect(){
+  const q = new URLSearchParams(location.search);
+  const code = q.get('code');
+  if(q.get('error')) alert('Sign-in failed: '+q.get('error_description'));
+  if(!code) return;
+  const v = sessionStorage.getItem('pkce_v');
+  history.replaceState({},'',redirectUri());
+  if(!v) return;
+  const cfg = loadCfg();
+  try{
+    const r = await fetch(AUTH+'/token',{method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:new URLSearchParams({client_id:cfg.clientId, grant_type:'authorization_code',
+        code, redirect_uri:redirectUri(), code_verifier:v, scope:SCOPE})});
+    const j = await r.json();
+    if(j.error) throw new Error(j.error_description||j.error);
+    storeTok(j);
+  }catch(e){ alert('Token exchange failed: '+e.message); }
+}
+function storeTok(j){
+  const cfg = loadCfg();
+  cfg.tok = j.access_token; cfg.rtok = j.refresh_token || cfg.rtok;
+  cfg.exp = Date.now() + (j.expires_in-120)*1000;
+  saveCfg(cfg); paintAuth();
+}
+async function token(){
+  const cfg = loadCfg();
+  if(cfg.tok && Date.now() < cfg.exp) return cfg.tok;
+  if(!cfg.rtok) throw new Error('Not signed in — open Settings and sign in.');
+  const r = await fetch(AUTH+'/token',{method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams({client_id:cfg.clientId, grant_type:'refresh_token',
+      refresh_token:cfg.rtok, scope:SCOPE})});
+  const j = await r.json();
+  if(j.error) throw new Error('Session expired — sign in again.');
+  storeTok(j); return j.access_token;
+}
+async function paintAuth(){
+  const cfg = loadCfg();
+  const el = $('authState');
+  if(!cfg.rtok && !cfg.tok){ el.textContent = 'Not signed in.'; return; }
+  try{
+    const t = await token();
+    const r = await fetch(GRAPH+'/me',{headers:{Authorization:'Bearer '+t}});
+    const j = await r.json();
+    el.innerHTML = j.userPrincipalName
+      ? `Signed in as <b>${j.userPrincipalName}</b>`
+      : 'Signed in.';
+  }catch(e){ el.textContent = 'Signed out — '+e.message; }
+}
+
+async function gfetch(url,opts){
+  const t = await token();
+  opts = opts||{}; opts.headers = Object.assign({}, opts.headers, {Authorization:'Bearer '+t});
+  const r = await fetch(url,opts);
+  if(!r.ok){
+    let d=''; try{ d = (await r.json()).error.message; }catch(e){}
+    throw new Error(`${r.status} ${d||r.statusText}`);
+  }
+  return r;
+}
+const gpath = p => p.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+
+async function ensureFolder(path){
+  // create each segment under /me/drive/root
+  const segs = path.split('/').filter(Boolean);
+  let cur = '';
+  for(const s of segs){
+    const parent = cur ? `${GRAPH}/me/drive/root:/${gpath(cur)}:/children`
+                       : `${GRAPH}/me/drive/root/children`;
+    try{
+      await gfetch(parent,{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({name:s, folder:{}, '@microsoft.graph.conflictBehavior':'fail'})});
+    }catch(e){ if(!/nameAlreadyExists|409/.test(e.message)) { /* keep going */ } }
+    cur = cur ? cur+'/'+s : s;
+  }
+  return cur;
+}
+async function putSmall(path,blob,ct){
+  return gfetch(`${GRAPH}/me/drive/root:/${gpath(path)}:/content`,
+    {method:'PUT', headers:{'Content-Type':ct||'application/octet-stream'}, body:blob});
+}
+async function putLarge(path,blob){
+  const s = await gfetch(`${GRAPH}/me/drive/root:/${gpath(path)}:/createUploadSession`,
+    {method:'POST', headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace'}})});
+  const {uploadUrl} = await s.json();
+  const CH = 5*327680; // 1.6 MB, multiple of 320 KiB
+  for(let o=0;o<blob.size;o+=CH){
+    const end = Math.min(o+CH, blob.size);
+    const r = await fetch(uploadUrl,{method:'PUT',
+      headers:{'Content-Range':`bytes ${o}-${end-1}/${blob.size}`},
+      body:blob.slice(o,end)});
+    if(!r.ok && r.status!==202) throw new Error('chunk '+r.status);
+  }
+}
+
+async function uploadAll(){
+  const box = $('opBox');
+  const cfg = loadCfg();
+  if(!cfg.clientId){
+    box.innerHTML = `<div class="flag warn">No Azure client ID set. Open SETTINGS and paste it, or
+      use EXPORT ZIP — the ZIP needs no setup at all.</div>`; return;
+  }
+  box.innerHTML = `<div class="card"><b>Uploading to OneDrive…</b>
+    <div id="progWrap"><div id="progBar"></div></div><div class="log" id="opLog"></div></div>`;
+  const logEl = $('opLog'), bar = $('progBar');
+  const log = m => { logEl.textContent += m+'\n'; logEl.scrollTop = 1e6; };
+
+  try{
+    const base = (cfg.folder || 'Documents/Claude/Projects/Assessment reports')
+                   .replace(/^\/+|\/+$/g,'');
+    const root = base+'/'+folderName();
+    log('folder: '+root);
+    await ensureFolder(root);
+
+    const all = (await idbAll('photos')).sort((a,b)=>a.seq-b.seq);
+    const bldgs = [...new Set(all.map(p=>p.unit ? 'Bldg-'+(p.building||'NA') : '_site'))];
+    for(const b of bldgs) await ensureFolder(root+'/'+b);
+
+    let done=0, fail=0;
+    for(const p of all){
+      const sub = p.unit ? 'Bldg-'+(p.building||'NA') : '_site';
+      const dest = `${root}/${sub}/${p.file}`;
+      try{
+        if(p.blob.size < 4*1024*1024) await putSmall(dest,p.blob,'image/jpeg');
+        else await putLarge(dest,p.blob);
+        p.up = true; await idbPut('photos',p);
+      }catch(e){ fail++; log('FAIL '+p.file+' — '+e.message); }
+      done++; bar.style.width = (done/all.length*100)+'%';
+      if(done%10===0) log(`${done}/${all.length} uploaded`);
+    }
+    log(`${done}/${all.length} uploaded`);
+
+    const enc = new TextEncoder();
+    await putSmall(root+'/PHOTO_MAP.json', new Blob([await mapJson()],{type:'application/json'}),'application/json');
+    await putSmall(root+'/PHOTO_MAP.csv',  new Blob([await mapCsv()],{type:'text/csv'}),'text/csv');
+    log('photo map written');
+
+    box.insertAdjacentHTML('beforeend', fail
+      ? `<div class="flag warn">Finished with ${fail} failure(s). Tap ONEDRIVE again to retry —
+         successful files are simply overwritten.</div>`
+      : `<div class="flag ok">All ${all.length} photos plus PHOTO_MAP.json / .csv are in
+         OneDrive under <b>${root}</b>.</div>`);
+  }catch(e){
+    box.insertAdjacentHTML('beforeend', `<div class="flag bad">Upload stopped: ${e.message}</div>`);
+  }
+}
+
+/* ============================================================
+   NAV + WIRING
+   ============================================================ */
+function show(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
+  $(id).classList.add('on');
+}
+
+$('btnStart').onclick = async ()=>{
+  const insured = $('fInsured').value.trim();
+  const claim   = $('fClaim').value.trim();
+  if(!insured || !claim){ alert('Insured and claim # are required.'); return; }
+  let bl = $('fBldgs').value.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+  if(!bl.length) bl = ['MAIN'];
+  const existing = await loadState();
+  if(existing && (existing.units||[]).length &&
+     !confirm('A job for '+existing.insured+' is already on this phone with '+
+              existing.units.length+' unit(s). Starting a new one will replace it. '+
+              'Export or upload first if you have not. Continue?')) return;
+  await idbClear('photos');
+  S = newJob({insured, claim, gtp:$('fGtp').value.trim(),
+              buildings:bl, reset:$('fReset').value, resPx:+$('fRes').value});
+  await saveState();
+  show('scCam'); await startCam(); stepIdx=0; renderCam();
+};
+$('btnResume').onclick = async ()=>{
+  const st = await loadState();
+  if(!st){ alert('No saved job on this phone.'); return; }
+  S = st; show('scCam'); await startCam(); stepIdx=0; renderCam();
+};
+
+$('shutter').onclick   = ()=>shoot({});
+$('btnSite').onclick   = ()=>shoot({site:true, note:'establishing / site overview'});
+$('advanceBtn').onclick= ()=>setStep(stepIdx+1);
+$('btnNewUnit').onclick= newUnit;
+$('btnCloseUnit').onclick = closeUnit;
+$('btnReview').onclick = async ()=>{ stopCam(); show('scRev'); await renderReview(); };
+$('selBldg').onchange  = async e=>{ S.bldg=e.target.value; S.unit=null; await saveState(); renderCam(); };
+
+$('btnBackCam').onclick= async ()=>{ show('scCam'); await startCam(); renderCam(); };
+$('btnZip').onclick    = exportZip;
+$('btnUp').onclick     = uploadAll;
+$('btnCfg').onclick    = ()=>{ const c=loadCfg();
+  $('cfgClient').value = c.clientId||'';
+  $('cfgFolder').value = c.folder||'Documents/Claude/Projects/Assessment reports';
+  idbAll('photos').then(a=>$('cfgStats').innerHTML =
+    `${S?S.units.length:0} units · ${a.length} photos · ${(a.reduce((x,p)=>x+p.blob.size,0)/1048576).toFixed(1)} MB on this phone`);
+  $('redirNote').innerHTML = 'Redirect URI to register in Azure:<br><b style="word-break:break-all">'
+    + redirectUri() + '</b>';
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  $('standaloneNote').style.display = standalone ? 'block' : 'none';
+  paintAuth(); show('scCfg'); };
+$('btnCfgBack').onclick= async ()=>{ const c=loadCfg();
+  c.clientId=$('cfgClient').value.trim(); c.folder=$('cfgFolder').value.trim(); saveCfg(c);
+  show('scRev'); await renderReview(); };
+$('btnSignIn').onclick = ()=>{ const c=loadCfg(); c.clientId=$('cfgClient').value.trim();
+  c.folder=$('cfgFolder').value.trim(); saveCfg(c); signIn(); };
+$('btnSignOut').onclick= ()=>{ const c=loadCfg(); delete c.tok; delete c.rtok; delete c.exp;
+  saveCfg(c); paintAuth(); };
+$('btnEditClaim').onclick = ()=>{
+  if(!S) return;
+  $('fInsured').value=S.insured; $('fClaim').value=S.claim; $('fGtp').value=S.gtp||'';
+  $('fBldgs').value=S.buildings.join(', '); show('scSetup');
+};
+$('btnWipe').onclick = async ()=>{
+  if(!confirm('Delete every photo and the job record from this phone? This cannot be undone.')) return;
+  if(!confirm('Really delete? Make sure you have exported or uploaded.')) return;
+  await idbClear('photos'); await idbPut('kv',{k:'state',v:null}); S=null;
+  alert('Cleared.'); location.reload();
+};
+
+/* keep the camera alive when returning to the tab */
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden) return;
+  if($('scCam').classList.contains('on') && !stream) startCam();
+});
+window.addEventListener('beforeunload', e=>{
+  if(S && S.units.some(u=>u.photos.length)) { e.preventDefault(); e.returnValue=''; }
+});
+
+/* boot */
+(async ()=>{
+  db = await openDB();
+  await handleRedirect();
+  const st = await loadState();
+  if(st && (st.units||[]).length){
+    const n = st.units.reduce((a,u)=>a+u.photos.length,0);
+    $('resumeInfo').innerHTML =
+      `Saved on this phone: <b>${st.insured}</b> · ${st.claim} — ${st.units.length} units, ${n} photos.`;
+  } else {
+    $('resumeInfo').textContent = 'No saved job on this phone.';
+  }
+  if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+})();
+</script>
+</body>
+</html>
