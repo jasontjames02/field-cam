@@ -279,6 +279,7 @@ button:disabled{opacity:.4}
      id="btnWipe">Delete this job from the phone</button>
    <div class="muted" style="margin-top:10px">Export or upload first. Deleting is permanent.</div>
   </div>
+  <div class="muted" id="buildLine" style="margin-top:18px;text-align:center"></div>
   <div style="height:20px"></div>
   <button style="width:100%" id="btnCfgBack">← Back</button>
  </div>
@@ -297,6 +298,12 @@ button:disabled{opacity:.4}
    Guided unit-by-unit job-site photo capture that emits the
    photo_map consumed by equipment-inventory-builder / photo-report.
    ============================================================ */
+
+/* Stamped into every PHOTO_MAP.json and shown in Settings. Bump BOTH this and the
+   cache name in sw.js on every deploy — a map that cannot be traced to the build that
+   wrote it is a map you cannot debug a year later. */
+const APP_VERSION = '2.1';
+const APP_BUILT   = '2026-08-12';
 
 const $ = id => document.getElementById(id);
 const pad = (n,w) => String(n).padStart(w,'0');
@@ -757,6 +764,9 @@ async function mapJson(){
   const photo_map = await buildMap();
   return JSON.stringify({
     source:'Field Capture',
+    app_version:APP_VERSION,
+    app_built:APP_BUILT,
+    map_schema:1,
     generated:new Date().toISOString(),
     claim:{insured:S.insured, claim_no:S.claim, job_no:S.job||'',
            started:S.started, buildings:S.buildings, unit_numbering:S.reset},
@@ -1189,6 +1199,8 @@ async function paintAuth(){
     const who = j.userPrincipalName || j.mail || j.displayName || 'account';
     const c2 = loadCfg(); c2.acct = who; saveCfg(c2);
     set(`Signed in as <b>${who}</b>`);
+    const sb = $('btnSignInSetup'); if(sb) sb.textContent = 'SWITCH ACCOUNT';
+    const sb2 = $('btnSignIn');     if(sb2) sb2.textContent = 'Switch account';
   }catch(e){ set('Signed out — '+e.message); }
 }
 
@@ -1280,13 +1292,31 @@ async function putPhoto(dest, blob){
   return putLarge(dest, blob);
 }
 
-function folderNameSafe(){ return folderName(); }
-function destRoot(){
-  const cfg = loadCfg();
-  const base = (cfg.folder || 'Documents/Claude/Projects/Assessment reports')
-                 .replace(/^\/+|\/+$/g,'');
-  return base+'/'+folderNameSafe();
+const DEFAULT_FOLDER = 'Documents/Claude/Projects/Assessment reports';
+/* The destination is a path INSIDE OneDrive — "Documents/Jobs", not a web address.
+   Pasting a onedrive.live.com URL in here used to be taken literally and the app
+   tried to create a folder called "https:", which OneDrive rejects on the colon. */
+function cleanFolder(raw){
+  let s = String(raw==null?'':raw).trim();
+  if(!s) return DEFAULT_FOLDER;
+  if(/^[a-z][a-z0-9+.-]*:\/\//i.test(s))
+    throw new Error('The destination folder is a web address. It has to be a path inside your '
+      + 'OneDrive instead — for example: ' + DEFAULT_FOLDER);
+  s = s.replace(/\\/g,'/');
+  /* A Windows path to the synced folder is the same destination said a different way:
+     C:/Users/jason/OneDrive/Documents/Jobs  ->  Documents/Jobs */
+  const od = s.split('/').findIndex(x=>/^onedrive/i.test(x.trim()));
+  if(od >= 0) s = s.split('/').slice(od+1).join('/');
+  else s = s.replace(/^[A-Za-z]:\//,'');
+  const segs = s.split('/')
+    .map(x=>x.replace(/[<>:"|?*]/g,'').replace(/^[\s.]+|[\s.]+$/g,'').trim())
+    .filter(Boolean);
+  if(!segs.length)
+    throw new Error('The destination folder is not a usable path. Try: ' + DEFAULT_FOLDER);
+  return segs.join('/');
 }
+function folderNameSafe(){ return folderName(); }
+function destRoot(){ return cleanFolder(loadCfg().folder) + '/' + folderNameSafe(); }
 const subFor = p => p.unit ? 'Bldg-'+(p.building||'NA') : '_site';
 
 /* ============================================================
@@ -1378,7 +1408,7 @@ async function testConnection(){
     const me = await whoami();
     const who = me.userPrincipalName || me.mail || me.displayName || 'unknown';
     const dr = await (await gfetch(GRAPH+'/me/drive')).json();
-    const base = (cfg.folder || 'Documents/Claude/Projects/Assessment reports').replace(/^\/+|\/+$/g,'');
+    const base = cleanFolder(cfg.folder);
     const probe = base + '/_field_capture_test';
     await ensureFolder(probe);
     await putSmall(probe+'/hello.txt', new Blob(['ok '+new Date().toISOString()],{type:'text/plain'}),'text/plain');
@@ -1547,6 +1577,7 @@ function openCfg(from){
     `${S?S.units.length:0} units · ${a.length} photos · ${(a.reduce((x,p)=>x+p.blob.size,0)/1048576).toFixed(1)} MB on this phone`);
   $('redirNote').innerHTML = 'Redirect URI to register in Azure:<br><b style="word-break:break-all">'
     + redirectUri() + '</b>';
+  $('buildLine').textContent = `Field Capture ${APP_VERSION} · built ${APP_BUILT}`;
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   $('standaloneNote').style.display = standalone ? 'block' : 'none';
   paintAuth(); show('scCfg');
@@ -1556,9 +1587,17 @@ $('btnCfgFromSetup').onclick = ()=>openCfg('scSetup');
 function saveCfgFields(){
   const c=loadCfg();
   c.clientId=$('cfgClient').value.trim();
-  c.folder=$('cfgFolder').value.trim();
   c.authority=$('cfgAuthority').value;
   c.auto=$('cfgAuto').value;
+  try{
+    c.folder = cleanFolder($('cfgFolder').value);
+    $('cfgFolder').value = c.folder;          // show what will actually be used
+    authMsg('');
+  }catch(e){
+    c.folder = DEFAULT_FOLDER;
+    $('cfgFolder').value = DEFAULT_FOLDER;
+    authMsg(e.message + ' — reset to the default.','warn');
+  }
   saveCfg(c); return c;
 }
 $('btnCfgBack').onclick= async ()=>{ saveCfgFields(); madeFolders.clear();

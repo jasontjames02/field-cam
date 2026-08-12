@@ -4,7 +4,7 @@
    Navigations are network-first (falling back to cache) so a new deploy is picked up
    the next time the phone has signal — cache-first left installed phones pinned to an
    old build forever. Everything else stays cache-first for speed. */
-const C = 'fieldcapture-v2';
+const C = 'fieldcapture-v2-1';
 const FILES = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', e => {
