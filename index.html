@@ -215,6 +215,7 @@ button:disabled{opacity:.4}
   <div class="row">
    <button class="sideBtn" id="btnNewUnit">＋ NEW UNIT</button>
    <button class="sideBtn" id="btnCloseUnit">CLOSE UNIT</button>
+   <button class="sideBtn" id="btnImport">IMPORT</button>
    <button class="sideBtn" id="btnReview">REVIEW</button>
   </div>
  </div>
@@ -289,6 +290,7 @@ button:disabled{opacity:.4}
 <div id="sheet"><div id="sheetIn"></div></div>
 
 <input type="file" id="filePick" accept="image/*" capture="environment" style="display:none">
+<input type="file" id="filePickLib" accept="image/*" multiple style="display:none">
 <canvas id="cv" style="display:none"></canvas>
 
 <script>
@@ -302,7 +304,7 @@ button:disabled{opacity:.4}
 /* Stamped into every PHOTO_MAP.json and shown in Settings. Bump BOTH this and the
    cache name in sw.js on every deploy — a map that cannot be traced to the build that
    wrote it is a map you cannot debug a year later. */
-const APP_VERSION = '2.1';
+const APP_VERSION = '2.2';
 const APP_BUILT   = '2026-08-12';
 
 const $ = id => document.getElementById(id);
@@ -513,6 +515,45 @@ $('filePick').addEventListener('change', async e=>{
   busy = false;
 });
 
+/* Import one or more photographs already on the phone into the CURRENT step of the
+   CURRENT unit. Files are ordered by their own timestamps so a burst lands in the
+   order it was shot, not the order the picker happened to hand them over. */
+function importFromLibrary(){
+  if(S.unit===null){ alert('Tap ＋ NEW UNIT first — an imported photo still has to belong to a unit.'); return; }
+  $('filePickLib').value=''; $('filePickLib').click();
+}
+async function handleImport(files){
+  const list = Array.from(files);
+  if(!list.length) return;
+  list.sort((a,b)=>(a.lastModified||0)-(b.lastModified||0));
+  const st = stepDef();
+  busy = true;
+  let done=0, fail=0, failNote='';
+  const draw = () => sheet(`<div class="card"><b>Importing into ${st.label}</b>
+     <div class="muted" style="margin-top:8px">${done} of ${list.length}${fail?' · '+fail+' failed':''}</div>
+     <div id="progWrap"><div id="progBar" style="width:${Math.round(done/list.length*100)}%"></div></div></div>`);
+  draw();
+  for(const f of list){
+    try{
+      const blob = await fileToJpeg(f, st.hires ? 4000 : S.resPx);
+      await storeShot(blob, st, {imported:true, origTs:f.lastModified, batch:true});
+    }catch(err){
+      fail++;
+      failNote = /decode|bitmap|source image/i.test(err.message||'')
+        ? 'that format could not be read on this phone (HEIC photos sometimes need to be shared as JPEG first)'
+        : (err.message||'unknown error');
+    }
+    done++; draw();
+  }
+  busy = false;
+  closeSheet();
+  if(fail) alert(`${done-fail} of ${list.length} imported. ${fail} failed — ${failNote}`);
+  if(!st.multi && stepIdx < STEPS.length-1) setStep(stepIdx+1);
+  renderCam();
+  kickQueue(600);
+}
+$('filePickLib').addEventListener('change', e=>handleImport(e.target.files));
+
 async function storeShot(blob, st, o){
   const site = !!o.site;
   if(!site && S.unit===null){ alert('Tap ＋ NEW UNIT first.'); return; }
@@ -533,6 +574,20 @@ async function storeShot(blob, st, o){
     ts: new Date().toISOString(),
     blob, up:false
   };
+  /* An imported photo is NOT a capture-time photograph. Say so, in the record and
+     in the map, every time. `ts` stays the moment it entered the job so the map's
+     order still matches its own timestamps — the original file date rides along
+     separately instead of corrupting the sequence. */
+  if(o.imported){
+    rec.imported = true;
+    if(o.origTs){
+      rec.orig_taken = new Date(o.origTs).toISOString();
+      rec.note = (rec.note? rec.note+' · ':'') + 'IMPORTED from phone library (file dated '
+               + new Date(o.origTs).toLocaleString() + ')';
+    } else {
+      rec.note = (rec.note? rec.note+' · ':'') + 'IMPORTED from phone library';
+    }
+  }
   await idbPut('photos', rec);
   if(!site) u.photos.push({id:rec.id, step:st.k, file:rec.file});
   await saveState();
@@ -540,8 +595,8 @@ async function storeShot(blob, st, o){
   SY.queued++; paintSync(); kickQueue();
   navigator.vibrate && navigator.vibrate(18);
 
-  /* auto-advance off the single-shot steps */
-  if(!site && !st.multi && stepIdx < STEPS.length-1) setStep(stepIdx+1);
+  /* auto-advance off the single-shot steps (held during a multi-file import) */
+  if(!o.batch && !site && !st.multi && stepIdx < STEPS.length-1) setStep(stepIdx+1);
 }
 function defaultNote(st,o){
   if(o && o.note) return o.note;
@@ -755,6 +810,7 @@ async function buildMap(){
       note: p.note||''
     };
     if(p.subtype && p.subtype!==p.type) e.subtype = p.subtype;
+    if(p.imported){ e.imported = true; if(p.orig_taken) e.original_taken = p.orig_taken; }
     if(p.type==='chalk_scope' && p.unit) e.scope = scopeBy[p.building+'|'+p.unit]||'';
     e.captured = p.ts;
     return e;
@@ -780,7 +836,8 @@ async function mapJson(){
 async function mapCsv(){
   const m = await buildMap();
   const esc = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const head = ['file','building','unit','type','subtype','scope','note','captured'];
+  const head = ['file','building','unit','type','subtype','scope','note','captured',
+                'imported','original_taken'];
   return [head.join(',')].concat(
     m.map(r=>head.map(h=>esc(r[h])).join(','))
   ).join('\r\n');
@@ -838,6 +895,17 @@ async function renderReview(){
     h += flags.map(f=>`<div class="flag ${f[0]}">${f[0]==='bad'?'✕':'!'} ${f[1]}</div>`).join('');
     if(bad) h += `<div class="muted" style="margin-top:9px">${bad} blocking issue${bad===1?'':'s'}.
       Fix before the inventory is built — these are the exact defects that misattributed photos on C26-2191.</div>`;
+  }
+
+  /* Imported photographs are evidence with a different provenance. Never let them
+     blend silently into a capture-time set — the map says so and so does this screen. */
+  const imp = all.filter(p=>p.imported);
+  if(imp.length){
+    h += `<div class="flag warn">${imp.length} photo${imp.length===1?' was':'s were'} imported from
+      the phone library rather than captured in the app. ${imp.length===1?'It is':'They are'} flagged
+      <b>imported</b> in PHOTO_MAP.json with the original file date, and the note on each one says so.
+      Check ${imp.length===1?'it belongs':'they belong'} to the unit ${imp.length===1?'it is':'they are'}
+      filed under.</div>`;
   }
 
   h += `<h2>Units</h2>`;
@@ -1552,6 +1620,7 @@ $('btnSite').onclick   = ()=>shoot({site:true, note:'establishing / site overvie
 $('advanceBtn').onclick= ()=>setStep(stepIdx+1);
 $('btnNewUnit').onclick= newUnit;
 $('btnCloseUnit').onclick = closeUnit;
+$('btnImport').onclick  = importFromLibrary;
 $('btnReview').onclick = async ()=>{ stopCam(); show('scRev'); await renderReview(); };
 $('selBldg').onchange  = async e=>{ S.bldg=e.target.value; S.unit=null; await saveState(); renderCam(); };
 
