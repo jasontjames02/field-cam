@@ -1,7 +1,7 @@
 {
-  "name": "GTP Field Capture",
-  "short_name": "GTP Cam",
-  "description": "Guided unit-by-unit job-site photo capture for GTP Consulting MEP assessments.",
+  "name": "Field Capture",
+  "short_name": "Field Capture",
+  "description": "Guided unit-by-unit job-site photo capture for MEP assessments.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
