@@ -2,7 +2,7 @@
    BUILD is bumped on every release. Changing this file byte-wise is what makes
    the browser install a new worker at all; a service worker whose file never
    changes is never replaced, and its cache is served forever. */
-const BUILD = 'v9-2026-08-20';
+const BUILD = 'v10-2026-08-20';
 const C = 'fieldcam-' + BUILD;
 
 /* Only genuinely static things are pre-cached. index.html deliberately is NOT

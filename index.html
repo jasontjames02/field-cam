@@ -236,8 +236,12 @@ button:disabled{opacity:.4}
   <div class="card">
    <label style="margin-top:0">Azure application (client) ID</label>
    <input id="cfgClient" placeholder="00000000-0000-0000-0000-000000000000">
-   <label>Destination folder in OneDrive</label>
+   <label>Destination folder in OneDrive <span style="text-transform:none">(a path, not a
+     link)</span></label>
    <input id="cfgFolder" placeholder="Documents/Claude/Projects/Assessment reports">
+   <div class="muted" id="folderMsg" style="margin-top:5px"></div>
+   <button class="ghost" style="width:100%;margin-top:7px;font-size:13px;padding:9px"
+     id="btnFolderReset">Reset to Documents/Claude/Projects/Assessment reports</button>
    <div class="muted" style="margin-top:10px">A folder named
    <b>&lt;Insured&gt;_&lt;Claim&gt;_Photos</b> is created inside it for each job.</div>
    <label>Force this account <span style="text-transform:none">(optional — paste the email
@@ -288,7 +292,7 @@ button:disabled{opacity:.4}
    photo_map consumed by equipment-inventory-builder / photo-report.
    ============================================================ */
 
-const BUILD = 'v9 · 2026-08-20';
+const BUILD = 'v10 · 2026-08-20';
 const $ = id => document.getElementById(id);
 const pad = (n,w) => String(n).padStart(w,'0');
 
@@ -1068,6 +1072,29 @@ async function exportZip(){
     `<div class="flag ok">ZIP saved to your downloads (${mb} MB). Unzip it into the Assessment
      reports folder — the folder is already named and structured.</div>`);
 }
+/* The destination box accepted anything, so pasting a OneDrive share link into
+   it produced an attempt to create a folder literally named "https:". Validate
+   it where it is entered AND again before an upload. */
+function cleanFolderPath(v){
+  let t = String(v||'').trim().replace(/\\/g,'/');
+  if(/^[a-z][a-z0-9+.-]*:\/\//i.test(t) || /1drv\.ms|onedrive\.live\.com|sharepoint\.com/i.test(t))
+    return {ok:false, msg:'That is a web link, not a folder path. Type a path like '+
+                          'Documents/Claude/Projects/Assessment reports'};
+  t = t.replace(/^\/+|\/+$/g,'');
+  if(!t) return {ok:false, msg:'Destination folder is empty.'};
+  const bad = t.split('/').filter(Boolean).find(seg=>/["*:<>?|]/.test(seg));
+  if(bad) return {ok:false, msg:'Folder name "'+bad+'" contains a character OneDrive does not '+
+                                'allow. None of  " * : < > ? |  are permitted.'};
+  return {ok:true, path:t};
+}
+function paintFolderCheck(){
+  const el = $('folderMsg'); if(!el) return;
+  const r = cleanFolderPath($('cfgFolder').value);
+  el.innerHTML = r.ok
+    ? '<span style="color:var(--chalk)">✓ '+r.path+'</span>'
+    : '<span style="color:var(--bad)">✕ '+r.msg+'</span>';
+}
+
 function folderName(){
   const s = v => String(v||'').replace(/[^A-Za-z0-9 _-]/g,'').trim().replace(/\s+/g,'-');
   return `${s(S.insured)||'JOB'}_${s(S.claim)||'NOCLAIM'}_Photos`;
@@ -1261,9 +1288,10 @@ async function uploadAll(){
       if(dr.id) log('drive id: '+dr.id);
     }catch(e){ log('account: could not read — '+e.message); }
 
-    const base = (cfg.folder || 'Documents/Claude/Projects/Assessment reports')
-                   .replace(/^\/+|\/+$/g,'');
-    const root = base+'/'+folderName();
+    const chk = cleanFolderPath(cfg.folder || 'Documents/Claude/Projects/Assessment reports');
+    if(!chk.ok) throw new Error('Destination folder is not usable — '+chk.msg+
+      '  Fix it in SETTINGS.');
+    const root = chk.path+'/'+folderName();
     log('folder: '+root);
 
     let rootId;
@@ -1382,6 +1410,7 @@ function openCfg(from){
   $('cfgClient').value = c.clientId||'';
   $('cfgFolder').value = c.folder||'Documents/Claude/Projects/Assessment reports';
   $('cfgHint').value = c.hint||'';
+  paintFolderCheck();
   $('lastUp').innerHTML = c.lastUpload
     ? `<a href="${c.lastUpload}" target="_blank" rel="noopener"
          style="display:block;padding:12px;border-radius:10px;background:var(--accent2);
@@ -1397,6 +1426,9 @@ function openCfg(from){
   $('standaloneNote').style.display = standalone ? 'block' : 'none';
   paintAuth(); show('scCfg');
 }
+$('cfgFolder').addEventListener('input', paintFolderCheck);
+$('btnFolderReset').onclick = ()=>{ $('cfgFolder').value='Documents/Claude/Projects/Assessment reports';
+  paintFolderCheck(); };
 $('btnCfg').onclick          = ()=>openCfg('scRev');
 $('btnCfgFromSetup').onclick = ()=>openCfg('scSetup');
 $('btnCfgBack').onclick= async ()=>{ const c=loadCfg();
