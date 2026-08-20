@@ -288,7 +288,7 @@ button:disabled{opacity:.4}
    photo_map consumed by equipment-inventory-builder / photo-report.
    ============================================================ */
 
-const BUILD = 'v8 · 2026-08-20';
+const BUILD = 'v9 · 2026-08-20';
 const $ = id => document.getElementById(id);
 const pad = (n,w) => String(n).padStart(w,'0');
 
@@ -1172,39 +1172,58 @@ async function gfetch(url,opts){
   opts = opts||{}; opts.headers = Object.assign({}, opts.headers, {Authorization:'Bearer '+t});
   const r = await fetch(url,opts);
   if(!r.ok){
-    let d=''; try{ d = (await r.json()).error.message; }catch(e){}
-    throw new Error(`${r.status} ${d||r.statusText}`);
+    let code='', msg='';
+    try{ const j = await r.json(); code = (j.error&&j.error.code)||''; msg = (j.error&&j.error.message)||''; }
+    catch(e){}
+    const err = new Error(`${r.status}${code?' '+code:''} ${msg||r.statusText}`);
+    err.status = r.status; err.code = code; err.url = String(url);
+    throw err;
   }
   return r;
 }
 const gpath = p => p.split('/').filter(Boolean).map(encodeURIComponent).join('/');
 
-async function ensureFolder(path){
-  // create each segment under /me/drive/root
-  const segs = path.split('/').filter(Boolean);
-  let cur = '';
-  for(const s of segs){
-    const parent = cur ? `${GRAPH}/me/drive/root:/${gpath(cur)}:/children`
-                       : `${GRAPH}/me/drive/root/children`;
+/* Resolve a folder path to an ITEM ID, creating segments as needed.
+   Addressing every upload by its full path meant one long, percent-encoded URL
+   per file and no way to tell a missing parent from a bad request. An id is
+   resolved once and reused, and a folder that cannot be created or found now
+   raises instead of being silently skipped. */
+async function folderChild(parentId, name){
+  const base = parentId ? `${GRAPH}/me/drive/items/${parentId}` : `${GRAPH}/me/drive/root`;
+  try{
+    const r = await gfetch(base+'/children',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name, folder:{}, '@microsoft.graph.conflictBehavior':'fail'})});
+    return (await r.json()).id;
+  }catch(e){
+    // Almost always "already exists" - find it. Anything else still surfaces below.
     try{
-      await gfetch(parent,{method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({name:s, folder:{}, '@microsoft.graph.conflictBehavior':'fail'})});
-    }catch(e){ if(!/nameAlreadyExists|409/.test(e.message)) { /* keep going */ } }
-    cur = cur ? cur+'/'+s : s;
+      let url = base+'/children?$select=id,name,folder&$top=200';
+      while(url){
+        const j = await (await gfetch(url)).json();
+        const hit = (j.value||[]).find(x=>x.name===name && x.folder);
+        if(hit) return hit.id;
+        url = j['@odata.nextLink'] || null;
+      }
+    }catch(e2){}
+    throw new Error(`folder "${name}" could not be created or found — ${e.message}`);
   }
-  return cur;
 }
-async function putSmall(path,blob,ct){
-  return gfetch(`${GRAPH}/me/drive/root:/${gpath(path)}:/content`,
+async function ensureFolder(path){
+  let id = null;
+  for(const seg of path.split('/').filter(Boolean)) id = await folderChild(id, seg);
+  return id;
+}
+async function putInto(folderId, name, blob, ct){
+  return gfetch(`${GRAPH}/me/drive/items/${folderId}:/${encodeURIComponent(name)}:/content`,
     {method:'PUT', headers:{'Content-Type':ct||'application/octet-stream'}, body:blob});
 }
-async function putLarge(path,blob){
-  const s = await gfetch(`${GRAPH}/me/drive/root:/${gpath(path)}:/createUploadSession`,
+async function putLargeInto(folderId, name, blob){
+  const s = await gfetch(`${GRAPH}/me/drive/items/${folderId}:/${encodeURIComponent(name)}:/createUploadSession`,
     {method:'POST', headers:{'Content-Type':'application/json'},
      body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace'}})});
   const {uploadUrl} = await s.json();
-  const CH = 5*327680; // 1.6 MB, multiple of 320 KiB
+  const CH = 5*327680;
   for(let o=0;o<blob.size;o+=CH){
     const end = Math.min(o+CH, blob.size);
     const r = await fetch(uploadUrl,{method:'PUT',
@@ -1246,36 +1265,50 @@ async function uploadAll(){
                    .replace(/^\/+|\/+$/g,'');
     const root = base+'/'+folderName();
     log('folder: '+root);
-    await ensureFolder(root);
+
+    let rootId;
+    try{
+      rootId = await ensureFolder(root);
+      log('folder ready');
+    }catch(e){
+      throw new Error('Could not open or create "'+root+'" in this OneDrive. '+e.message);
+    }
 
     const all = (await idbAll('photos')).sort((a,b)=>a.seq-b.seq);
     const bldgs = [...new Set(all.map(p=>p.unit ? 'Bldg-'+(p.building||'NA') : '_site'))];
-    for(const b of bldgs) await ensureFolder(root+'/'+b);
+    const subId = {};
+    for(const b of bldgs) subId[b] = await folderChild(rootId, b);
 
-    let done=0, fail=0;
+    let ok=0, fail=0, firstErr='';
     for(const p of all){
       const sub = p.unit ? 'Bldg-'+(p.building||'NA') : '_site';
-      const dest = `${root}/${sub}/${p.file}`;
       try{
-        if(p.blob.size < 4*1024*1024) await putSmall(dest,p.blob,'image/jpeg');
-        else await putLarge(dest,p.blob);
-        p.up = true; await idbPut('photos',p);
-      }catch(e){ fail++; log('FAIL '+p.file+' — '+e.message); }
-      done++; bar.style.width = (done/all.length*100)+'%';
-      if(done%10===0) log(`${done}/${all.length} uploaded`);
+        if(p.blob.size < 4*1024*1024) await putInto(subId[sub], p.file, p.blob, 'image/jpeg');
+        else await putLargeInto(subId[sub], p.file, p.blob);
+        p.up = true; await idbPut('photos',p); ok++;
+      }catch(e){
+        fail++;
+        if(!firstErr){ firstErr = e.message; log('FIRST FAILURE — '+e.message);
+                       if(e.url) log('  url: '+e.url.replace(GRAPH,'')); }
+        log('FAIL '+p.file+' — '+e.message);
+      }
+      bar.style.width = ((ok+fail)/all.length*100)+'%';
+      if((ok+fail)%10===0) log(`${ok} uploaded, ${fail} failed (of ${all.length})`);
     }
-    log(`${done}/${all.length} uploaded`);
+    /* Count successes, not attempts. The old counter reported "10/10 uploaded"
+       for a run in which every single file had failed. */
+    log(`${ok} uploaded, ${fail} failed, ${all.length} total`);
+    if(ok===0 && all.length) throw new Error('Nothing uploaded. '+(firstErr||'unknown error'));
 
-    const enc = new TextEncoder();
-    await putSmall(root+'/PHOTO_MAP.json', new Blob([await mapJson()],{type:'application/json'}),'application/json');
-    await putSmall(root+'/PHOTO_MAP.csv',  new Blob([await mapCsv()],{type:'text/csv'}),'text/csv');
+    await putInto(rootId, 'PHOTO_MAP.json', new Blob([await mapJson()],{type:'application/json'}),'application/json');
+    await putInto(rootId, 'PHOTO_MAP.csv',  new Blob([await mapCsv()],{type:'text/csv'}),'text/csv');
     log('photo map written');
 
     /* Ask OneDrive where it actually put them and hand back a tappable link.
        A green banner you cannot verify is worse than no banner. */
     let url = '';
     try{
-      const r = await gfetch(`${GRAPH}/me/drive/root:/${gpath(root)}`);
+      const r = await gfetch(`${GRAPH}/me/drive/items/${rootId}`);
       url = (await r.json()).webUrl || '';
       cfg.lastUpload = url; cfg.lastUploadAt = new Date().toISOString(); saveCfg(cfg);
       log('landed: '+url);
@@ -1289,9 +1322,10 @@ async function uploadAll(){
       : '';
 
     box.insertAdjacentHTML('beforeend', (fail
-      ? `<div class="flag warn">Finished with ${fail} failure(s). Tap ONEDRIVE again to retry —
-         successful files are simply overwritten.</div>`
-      : `<div class="flag ok">All ${all.length} photos plus PHOTO_MAP.json / .csv uploaded to
+      ? `<div class="flag bad">${fail} of ${all.length} photo(s) FAILED — ${ok} uploaded.
+         Nothing here is complete. Tap ONEDRIVE again to retry; files that did land are
+         simply overwritten.</div>`
+      : `<div class="flag ok">All ${ok} photos plus PHOTO_MAP.json / .csv uploaded to
          <b>${root}</b>. The photos are inside the <b>Bldg-…</b> subfolders, not loose in
          that folder.</div>`) + link);
   }catch(e){
