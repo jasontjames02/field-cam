@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0e1116">
-<title>Field Capture</title>
+<title>Field Cam</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -67,8 +67,17 @@ button:disabled{opacity:.4}
   background:linear-gradient(180deg,rgba(0,0,0,.82),rgba(0,0,0,0))}
 #stepBanner b{font-size:15px;display:block}
 #stepBanner span{font-size:12px;color:#cfe0ee}
-#shotCount{position:absolute;right:10px;bottom:10px;background:rgba(0,0,0,.65);
+#shotCount{position:absolute;right:10px;top:74px;background:rgba(0,0,0,.65);
   border-radius:8px;padding:5px 9px;font-size:12px;font-weight:700}
+#camBar{position:absolute;left:0;right:0;bottom:0;padding:8px 10px 10px;
+  background:linear-gradient(0deg,rgba(0,0,0,.78),rgba(0,0,0,0))}
+#lensBar{display:flex;gap:7px;justify-content:center;margin-bottom:7px}
+.lens{min-width:46px;padding:8px 12px;border-radius:99px;font-size:13px;font-weight:800;
+  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.28);color:#fff}
+.lens.on{background:#fff;color:#000;border-color:#fff}
+#zoomRow{display:flex;align-items:center;gap:10px;padding:0 6px}
+#zoomR{flex:1;accent-color:#fff;height:26px}
+#zoomLbl{font-size:13px;font-weight:800;min-width:44px;text-align:right}
 
 #steps{display:flex;gap:6px;overflow-x:auto;padding:9px 12px;background:var(--panel);
   border-top:1px solid var(--line);flex:0 0 auto;scrollbar-width:none}
@@ -124,12 +133,6 @@ button:disabled{opacity:.4}
 .tabs{display:flex;gap:6px;padding:10px 12px;background:var(--panel);border-top:1px solid var(--line);flex:0 0 auto}
 .tabs button{flex:1;font-size:12px;padding:11px 4px}
 .tabs button.on{background:var(--accent2);border-color:var(--accent2);color:#04121e}
-#syncPill{position:absolute;left:10px;top:10px;z-index:6;padding:6px 11px;border-radius:99px;
-  font-size:11px;font-weight:800;letter-spacing:.04em;background:rgba(6,12,18,.82);
-  border:1px solid var(--line);color:var(--dim);backdrop-filter:blur(4px)}
-#syncPill.ok{color:#7ee2a8;border-color:#2c5c42}
-#syncPill.work{color:#ffd479;border-color:#5c4a22}
-#syncPill.bad{color:#ff9d9d;border-color:#5a2a2a}
 </style>
 </head>
 <body>
@@ -137,27 +140,14 @@ button:disabled{opacity:.4}
 <!-- ============ SETUP ============ -->
 <div class="screen on" id="scSetup">
  <div class="scroll pad">
-  <h1>Field Capture</h1>
+  <h1>Field Cam</h1>
   <div class="muted">Guided unit-by-unit photo capture. Writes the photo map as you shoot, so no
   vision pass has to guess unit boundaries later.</div>
-
-  <h2>OneDrive</h2>
-  <div class="card" id="setupOneDrive">
-   <div id="setupAuthState" class="muted" style="margin-top:0">Checking…</div>
-   <div class="row" style="margin-top:12px">
-    <button class="blue" id="btnSignInSetup" style="flex:2">SIGN IN TO ONEDRIVE</button>
-    <button class="ghost" id="btnSignOutSetup" style="flex:1">Sign out</button>
-   </div>
-   <button class="ghost" style="width:100%;margin-top:8px" id="btnTestSetup">Test the connection</button>
-   <div id="setupAuthMsg" style="margin-top:10px"></div>
-   <div class="muted" style="margin-top:10px">Sign in <b>before</b> you start shooting. Photos then
-   upload in the background as you take them, so nothing is stranded on the phone.</div>
-  </div>
 
   <h2>Claim</h2>
   <label>Insured</label><input id="fInsured" placeholder="SECURE ITADS" autocapitalize="characters">
   <label>Claim #</label><input id="fClaim" placeholder="C26-2191" autocapitalize="characters">
-  <label>Job # <span style="text-transform:none">(optional)</span></label><input id="fJob" placeholder="e.g. 2026-014">
+  <label>Job # <span style="text-transform:none">(optional)</span></label><input id="fGtp" placeholder="e.g. 2026-014">
   <label>Buildings <span style="text-transform:none">(comma separated — blank for single building)</span></label>
   <input id="fBldgs" placeholder="1B, 2A, 3A, 5A" autocapitalize="characters">
   <label>Unit numbering</label>
@@ -200,7 +190,13 @@ button:disabled{opacity:.4}
   <div id="flash"></div>
   <div id="stepBanner"><b id="bTitle">—</b><span id="bHint">—</span></div>
   <div id="shotCount">0</div>
-  <div id="syncPill">—</div>
+  <div id="camBar">
+   <div id="lensBar"></div>
+   <div id="zoomRow">
+    <input type="range" id="zoomR" min="1" max="5" step="0.1" value="1" aria-label="Zoom">
+    <span id="zoomLbl">1.0&times;</span>
+   </div>
+  </div>
  </div>
 
  <div id="steps"></div>
@@ -215,7 +211,6 @@ button:disabled{opacity:.4}
   <div class="row">
    <button class="sideBtn" id="btnNewUnit">＋ NEW UNIT</button>
    <button class="sideBtn" id="btnCloseUnit">CLOSE UNIT</button>
-   <button class="sideBtn" id="btnImport">IMPORT</button>
    <button class="sideBtn" id="btnReview">REVIEW</button>
   </div>
  </div>
@@ -240,36 +235,21 @@ button:disabled{opacity:.4}
   <div class="card">
    <label style="margin-top:0">Azure application (client) ID</label>
    <input id="cfgClient" placeholder="00000000-0000-0000-0000-000000000000">
-   <label>Account type</label>
-   <select id="cfgAuthority">
-    <option value="consumers">Personal Microsoft account (outlook / hotmail / live)</option>
-    <option value="organizations">Work or school account (Microsoft 365)</option>
-    <option value="common">Either — app allows both</option>
-   </select>
-   <div class="muted" style="margin-top:8px">This has to match what the app registration allows in
-   Azure. Picking the wrong one fails at the sign-in screen, before any upload.</div>
    <label>Destination folder in OneDrive</label>
    <input id="cfgFolder" placeholder="Documents/Claude/Projects/Assessment reports">
    <div class="muted" style="margin-top:10px">A folder named
    <b>&lt;Insured&gt;_&lt;Claim&gt;_Photos</b> is created inside it for each job.</div>
-   <label>Upload photos while shooting</label>
-   <select id="cfgAuto">
-    <option value="1">Yes — upload each photo in the background (recommended)</option>
-    <option value="0">No — hold them on the phone until I tap ONEDRIVE</option>
-   </select>
    <div class="row" style="margin-top:12px">
     <button class="blue" id="btnSignIn">Sign in</button>
     <button class="ghost" id="btnSignOut">Sign out</button>
    </div>
-   <button class="ghost" style="width:100%;margin-top:8px" id="btnTest">Test the connection</button>
    <div class="muted" id="authState" style="margin-top:10px">Not signed in.</div>
-   <div id="authMsg" style="margin-top:10px"></div>
    <div id="lastUp" style="margin-top:10px"></div>
    <div class="muted" id="redirNote" style="margin-top:10px"></div>
    <div class="flag warn" id="standaloneNote" style="display:none">
-    Running from the home screen. Sign-in opens the browser and comes back — that round trip is
-    handled, but if it ever fails to return, open the app in a normal browser tab to sign in.
-    EXPORT ZIP always works with no sign-in at all.
+    Running from the home screen. If Microsoft sign-in bounces to Safari and does not come back,
+    open the app in a normal Safari tab to sign in and upload — or just use EXPORT ZIP, which
+    needs no sign-in at all.
    </div>
   </div>
   <h2>Job data</h2>
@@ -280,7 +260,6 @@ button:disabled{opacity:.4}
      id="btnWipe">Delete this job from the phone</button>
    <div class="muted" style="margin-top:10px">Export or upload first. Deleting is permanent.</div>
   </div>
-  <div class="muted" id="buildLine" style="margin-top:18px;text-align:center"></div>
   <div style="height:20px"></div>
   <button style="width:100%" id="btnCfgBack">← Back</button>
  </div>
@@ -290,22 +269,15 @@ button:disabled{opacity:.4}
 <div id="sheet"><div id="sheetIn"></div></div>
 
 <input type="file" id="filePick" accept="image/*" capture="environment" style="display:none">
-<input type="file" id="filePickLib" accept="image/*" multiple style="display:none">
 <canvas id="cv" style="display:none"></canvas>
 
 <script>
 "use strict";
 /* ============================================================
-   FIELD CAPTURE
+   FIELD CAM
    Guided unit-by-unit job-site photo capture that emits the
    photo_map consumed by equipment-inventory-builder / photo-report.
    ============================================================ */
-
-/* Stamped into every PHOTO_MAP.json and shown in Settings. Bump BOTH this and the
-   cache name in sw.js on every deploy — a map that cannot be traced to the build that
-   wrote it is a map you cannot debug a year later. */
-const APP_VERSION = '2.2';
-const APP_BUILT   = '2026-08-12';
 
 const $ = id => document.getElementById(id);
 const pad = (n,w) => String(n).padStart(w,'0');
@@ -389,23 +361,19 @@ function idbClear(store){ return new Promise((res,rej)=>{ const q=tx(store,'read
 const saveState = () => idbPut('kv',{k:'state',v:S});
 const loadState = () => idbGet('kv','state').then(r=>(r&&r.v)?r.v:null);
 
-const CFG_KEY = 'fieldcapture_cfg';
 function loadCfg(){
-  try{
-    const raw = localStorage.getItem(CFG_KEY) || localStorage.getItem('fieldcamcfg');
-    return raw ? JSON.parse(raw) : {};
-  }catch(e){ return {}; }
+  try{ return JSON.parse(localStorage.getItem('fieldcamcfg')||'{}'); }catch(e){ return {}; }
 }
-function saveCfg(c){ localStorage.setItem(CFG_KEY, JSON.stringify(c)); }
+function saveCfg(c){ localStorage.setItem('fieldcamcfg', JSON.stringify(c)); }
 
 /* ---------- job model ----------
-   S = { insured, claim, job, started, buildings[], reset, resPx,
+   S = { insured, claim, gtp, started, buildings[], reset, resPx,
          bldg, unit, seq, units:[ {building,unit,scope,photos:[photoId]} ] }
    photo record = { id, seq, file, building, unit, type, subtype, step, note, ts, blob, up }
 ------------------------------------------------------------- */
 function newJob(f){
   return {
-    insured:f.insured, claim:f.claim, job:f.job,
+    insured:f.insured, claim:f.claim, gtp:f.gtp,
     started:new Date().toISOString(),
     buildings:f.buildings, reset:f.reset, resPx:f.resPx,
     bldg:f.buildings[0], unit:null, seq:0, units:[]
@@ -431,19 +399,104 @@ function mkName(seq,bldg,unit,step,n){
 /* ============================================================
    CAMERA
    ============================================================ */
+let lenses = [];          // [{id,label,mult}] back-facing cameras, widest first
+let lensId  = null;       // deviceId currently open
+let zoom    = 1;          // digital zoom factor (1 = none)
+let nativeZoom = false;   // true when the track itself can zoom (Android)
+
+/* iOS labels its back cameras; that is the only way to reach the 0.5x ultra-wide,
+   which is what you actually need to fit a whole RTU in one frame. Labels are
+   empty until permission has been granted once, so this runs AFTER startCam. */
+async function findLenses(){
+  try{
+    const devs = (await navigator.mediaDevices.enumerateDevices())
+                   .filter(d=>d.kind==='videoinput');
+    const back = devs.filter(d=>/back|rear|environment/i.test(d.label));
+    const pool = back.length ? back : devs;
+    lenses = pool.map(d=>{
+      const L = d.label || '';
+      let mult = 1, name = '1\u00d7';
+      if(/ultra\s*wide/i.test(L)){ mult = 0.5; name = '.5\u00d7'; }
+      else if(/telephoto/i.test(L)){ mult = 2;  name = '2\u00d7'; }
+      else if(/triple|dual|wide|back camera/i.test(L)){ mult = 1; name = '1\u00d7'; }
+      return {id:d.deviceId, label:L, mult, name};
+    }).sort((a,b)=>a.mult-b.mult);
+    // collapse duplicates that would show the same chip
+    const seen = new Set();
+    lenses = lenses.filter(l=>{ if(seen.has(l.name)) return false; seen.add(l.name); return true; });
+  }catch(e){ lenses = []; }
+  renderLenses();
+}
+function renderLenses(){
+  const bar = $('lensBar');
+  if(lenses.length < 2){ bar.innerHTML=''; return; }
+  bar.innerHTML = lenses.map(l=>
+    `<button class="lens${l.id===lensId?' on':''}" data-id="${l.id}">${l.name}</button>`).join('');
+  bar.querySelectorAll('button').forEach(b=>b.onclick=()=>useLens(b.dataset.id));
+}
+async function useLens(id){
+  lensId = id; setZoom(1);
+  stopCam();
+  await startCam();
+  renderLenses();
+}
+
+function applyZoomToPreview(){
+  $('zoomLbl').innerHTML = zoom.toFixed(1)+'&times;';
+  $('zoomR').value = zoom;
+  $('video').style.transform = nativeZoom ? 'none' : `scale(${zoom})`;
+}
+function setZoom(z){
+  z = Math.max(1, Math.min(5, +z || 1));
+  zoom = z;
+  if(nativeZoom && track){
+    const cap = track.getCapabilities ? track.getCapabilities() : {};
+    if(cap.zoom){
+      const v = cap.zoom.min + (cap.zoom.max - cap.zoom.min) * ((z-1)/4);
+      track.applyConstraints({advanced:[{zoom:v}]}).catch(()=>{});
+    }
+  }
+  applyZoomToPreview();
+}
+
+/* iOS pauses the <video> whenever an overlay, keyboard or alert() takes focus,
+   and never resumes it. The stream stays live, so the preview just freezes on
+   the last frame. Resume on every event that can cause it. */
+function wakeCam(){
+  const v = $('video');
+  if(stream && track && track.readyState === 'live'){
+    if(v.paused) v.play().catch(()=>{});
+  } else if($('scCam').classList.contains('on')){
+    startCam();               // track was killed by the OS - rebuild it
+  }
+}
+
 async function startCam(){
   const px = S ? S.resPx : 2600;
-  const tries = [
-    {video:{facingMode:{exact:'environment'},width:{ideal:px},height:{ideal:px}}},
-    {video:{facingMode:'environment',width:{ideal:px},height:{ideal:px}}},
-    {video:true}
-  ];
+  const base = {width:{ideal:px},height:{ideal:px}};
+  const tries = lensId
+    ? [{video:Object.assign({deviceId:{exact:lensId}}, base)},
+       {video:Object.assign({facingMode:'environment'}, base)},
+       {video:true}]
+    : [{video:Object.assign({facingMode:{exact:'environment'}}, base)},
+       {video:Object.assign({facingMode:'environment'}, base)},
+       {video:true}];
   for(const c of tries){
     try{
       stream = await navigator.mediaDevices.getUserMedia(c);
-      $('video').srcObject = stream;
+      const v = $('video');
+      v.srcObject = stream;
       track = stream.getVideoTracks()[0];
+      if(!lensId && track.getSettings) lensId = track.getSettings().deviceId || null;
+      const cap = track.getCapabilities ? track.getCapabilities() : {};
+      nativeZoom = !!(cap && cap.zoom);
+      zoom = 1; applyZoomToPreview();
+      v.play().catch(()=>{});
+      /* If the OS ends the track (call, background, lens switch) rebuild it
+         rather than leaving a dead preview behind. */
+      track.onended = ()=>{ if($('scCam').classList.contains('on')) startCam(); };
       $('noCam').style.display='none';
+      if(!lenses.length) findLenses();
       return true;
     }catch(e){ /* next */ }
   }
@@ -460,10 +513,15 @@ function grabFrame(maxPx){
   const v = $('video');
   const vw = v.videoWidth, vh = v.videoHeight;
   if(!vw || !vh) return null;
-  const sc = Math.min(1, maxPx/Math.max(vw,vh));
+  /* Digital zoom crops the centre so the photo matches what the preview shows.
+     Native zoom already happened in the sensor, so don't crop twice. */
+  const z  = nativeZoom ? 1 : zoom;
+  const sw = vw / z, sh = vh / z;
+  const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
+  const sc = Math.min(1, maxPx / Math.max(sw, sh));
   const cv = $('cv');
-  cv.width = Math.round(vw*sc); cv.height = Math.round(vh*sc);
-  cv.getContext('2d').drawImage(v,0,0,cv.width,cv.height);
+  cv.width = Math.round(sw*sc); cv.height = Math.round(sh*sc);
+  cv.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
   return new Promise(r=>cv.toBlob(r,'image/jpeg',0.9));
 }
 /* re-encode a file from the native camera, baking in EXIF rotation via createImageBitmap */
@@ -515,45 +573,6 @@ $('filePick').addEventListener('change', async e=>{
   busy = false;
 });
 
-/* Import one or more photographs already on the phone into the CURRENT step of the
-   CURRENT unit. Files are ordered by their own timestamps so a burst lands in the
-   order it was shot, not the order the picker happened to hand them over. */
-function importFromLibrary(){
-  if(S.unit===null){ alert('Tap ＋ NEW UNIT first — an imported photo still has to belong to a unit.'); return; }
-  $('filePickLib').value=''; $('filePickLib').click();
-}
-async function handleImport(files){
-  const list = Array.from(files);
-  if(!list.length) return;
-  list.sort((a,b)=>(a.lastModified||0)-(b.lastModified||0));
-  const st = stepDef();
-  busy = true;
-  let done=0, fail=0, failNote='';
-  const draw = () => sheet(`<div class="card"><b>Importing into ${st.label}</b>
-     <div class="muted" style="margin-top:8px">${done} of ${list.length}${fail?' · '+fail+' failed':''}</div>
-     <div id="progWrap"><div id="progBar" style="width:${Math.round(done/list.length*100)}%"></div></div></div>`);
-  draw();
-  for(const f of list){
-    try{
-      const blob = await fileToJpeg(f, st.hires ? 4000 : S.resPx);
-      await storeShot(blob, st, {imported:true, origTs:f.lastModified, batch:true});
-    }catch(err){
-      fail++;
-      failNote = /decode|bitmap|source image/i.test(err.message||'')
-        ? 'that format could not be read on this phone (HEIC photos sometimes need to be shared as JPEG first)'
-        : (err.message||'unknown error');
-    }
-    done++; draw();
-  }
-  busy = false;
-  closeSheet();
-  if(fail) alert(`${done-fail} of ${list.length} imported. ${fail} failed — ${failNote}`);
-  if(!st.multi && stepIdx < STEPS.length-1) setStep(stepIdx+1);
-  renderCam();
-  kickQueue(600);
-}
-$('filePickLib').addEventListener('change', e=>handleImport(e.target.files));
-
 async function storeShot(blob, st, o){
   const site = !!o.site;
   if(!site && S.unit===null){ alert('Tap ＋ NEW UNIT first.'); return; }
@@ -574,29 +593,14 @@ async function storeShot(blob, st, o){
     ts: new Date().toISOString(),
     blob, up:false
   };
-  /* An imported photo is NOT a capture-time photograph. Say so, in the record and
-     in the map, every time. `ts` stays the moment it entered the job so the map's
-     order still matches its own timestamps — the original file date rides along
-     separately instead of corrupting the sequence. */
-  if(o.imported){
-    rec.imported = true;
-    if(o.origTs){
-      rec.orig_taken = new Date(o.origTs).toISOString();
-      rec.note = (rec.note? rec.note+' · ':'') + 'IMPORTED from phone library (file dated '
-               + new Date(o.origTs).toLocaleString() + ')';
-    } else {
-      rec.note = (rec.note? rec.note+' · ':'') + 'IMPORTED from phone library';
-    }
-  }
   await idbPut('photos', rec);
   if(!site) u.photos.push({id:rec.id, step:st.k, file:rec.file});
   await saveState();
   renderCam();
-  SY.queued++; paintSync(); kickQueue();
   navigator.vibrate && navigator.vibrate(18);
 
-  /* auto-advance off the single-shot steps (held during a multi-file import) */
-  if(!o.batch && !site && !st.multi && stepIdx < STEPS.length-1) setStep(stepIdx+1);
+  /* auto-advance off the single-shot steps */
+  if(!site && !st.multi && stepIdx < STEPS.length-1) setStep(stepIdx+1);
 }
 function defaultNote(st,o){
   if(o && o.note) return o.note;
@@ -727,7 +731,7 @@ function closeUnit(){
    ============================================================ */
 function renderCam(){
   $('tInsured').textContent = S.insured || '—';
-  $('tClaim').textContent   = (S.claim||'—') + (S.job? ' · '+S.job : '');
+  $('tClaim').textContent   = (S.claim||'—') + (S.gtp? ' · '+S.gtp : '');
   $('tUnit').textContent    = S.unit===null ? '—' : S.unit;
   $('unitBadge').style.background = S.unit===null ? '#4b5563' : 'var(--accent)';
 
@@ -755,7 +759,6 @@ function renderCam(){
   $('steps').querySelectorAll('.step').forEach(el=>el.onclick=()=>setStep(+el.dataset.i));
   const cur = $('steps').querySelector('.cur'); if(cur) cur.scrollIntoView({inline:'center',block:'nearest'});
 
-  paintSync();
   renderThumbs(u);
 }
 async function renderThumbs(u){
@@ -791,7 +794,7 @@ function confirmDelete(rec,u){
 
 /* ---------- sheet helper ---------- */
 function sheet(html){ $('sheetIn').innerHTML = html; $('sheet').classList.add('on'); }
-function closeSheet(){ $('sheet').classList.remove('on'); }
+function closeSheet(){ $('sheet').classList.remove('on'); wakeCam(); }
 $('sheet').addEventListener('click', e=>{ if(e.target.id==='sheet') closeSheet(); });
 
 /* ============================================================
@@ -810,7 +813,6 @@ async function buildMap(){
       note: p.note||''
     };
     if(p.subtype && p.subtype!==p.type) e.subtype = p.subtype;
-    if(p.imported){ e.imported = true; if(p.orig_taken) e.original_taken = p.orig_taken; }
     if(p.type==='chalk_scope' && p.unit) e.scope = scopeBy[p.building+'|'+p.unit]||'';
     e.captured = p.ts;
     return e;
@@ -819,12 +821,9 @@ async function buildMap(){
 async function mapJson(){
   const photo_map = await buildMap();
   return JSON.stringify({
-    source:'Field Capture',
-    app_version:APP_VERSION,
-    app_built:APP_BUILT,
-    map_schema:1,
+    source:'Field Cam',
     generated:new Date().toISOString(),
-    claim:{insured:S.insured, claim_no:S.claim, job_no:S.job||'',
+    claim:{insured:S.insured, claim_no:S.claim, gtp_no:S.gtp||'',
            started:S.started, buildings:S.buildings, unit_numbering:S.reset},
     units:S.units.map(u=>({building:u.building, unit:u.unit, scope:u.scope||'',
                            photo_count:u.photos.length})),
@@ -836,8 +835,7 @@ async function mapJson(){
 async function mapCsv(){
   const m = await buildMap();
   const esc = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const head = ['file','building','unit','type','subtype','scope','note','captured',
-                'imported','original_taken'];
+  const head = ['file','building','unit','type','subtype','scope','note','captured'];
   return [head.join(',')].concat(
     m.map(r=>head.map(h=>esc(r[h])).join(','))
   ).join('\r\n');
@@ -870,6 +868,37 @@ function validate(){
 /* ============================================================
    REVIEW SCREEN
    ============================================================ */
+/* The account is the single most important fact before an upload, and it was
+   buried in Settings. A green "uploaded" banner against the wrong OneDrive is
+   indistinguishable from success. Put it where the button is. */
+async function paintDest(){
+  const el = $('acctCard'); if(!el) return;
+  const cfg = loadCfg();
+  if(!cfg.clientId){
+    el.innerHTML = `<div class="muted">OneDrive not set up. <b>EXPORT ZIP</b> works without it.</div>`;
+    return;
+  }
+  try{
+    const t = await token();
+    const h = {Authorization:'Bearer '+t};
+    const me = await (await fetch(GRAPH+'/me',{headers:h})).json();
+    const who = me.userPrincipalName || me.mail || me.displayName || 'unknown';
+    let drive = '';
+    try{
+      const dr = await (await fetch(GRAPH+'/me/drive',{headers:h})).json();
+      drive = dr.id ? `<div class="muted" style="font-size:11px;word-break:break-all;margin-top:4px">drive ${dr.id}</div>` : '';
+    }catch(e){}
+    el.innerHTML = `<div class="muted">ONEDRIVE will upload to</div>
+      <div style="font-size:15px;font-weight:800;margin-top:3px;word-break:break-all">${who}</div>
+      ${drive}
+      <div class="muted" style="margin-top:6px">Not the right account? SETTINGS → Sign out,
+      then sign in and pick the right one.</div>`;
+  }catch(e){
+    el.innerHTML = `<div class="flag warn">Not signed in to OneDrive — ${e.message}.
+      Use SETTINGS to sign in, or EXPORT ZIP instead.</div>`;
+  }
+}
+
 async function renderReview(){
   const total = S.units.reduce((a,u)=>a+u.photos.length,0);
   const all = await idbAll('photos');
@@ -878,7 +907,7 @@ async function renderReview(){
   const bad = flags.filter(f=>f[0]==='bad').length;
 
   let h = `<h1>${S.insured||'—'}</h1>
-    <div class="muted">${S.claim||''}${S.job?' · '+S.job:''} · started ${new Date(S.started).toLocaleDateString()}</div>
+    <div class="muted">${S.claim||''}${S.gtp?' · '+S.gtp:''} · started ${new Date(S.started).toLocaleDateString()}</div>
     <div class="card" style="margin-top:14px">
       <div class="row" style="text-align:center">
         <div><div style="font-size:24px;font-weight:800">${S.units.length}</div><div class="muted">units</div></div>
@@ -895,17 +924,6 @@ async function renderReview(){
     h += flags.map(f=>`<div class="flag ${f[0]}">${f[0]==='bad'?'✕':'!'} ${f[1]}</div>`).join('');
     if(bad) h += `<div class="muted" style="margin-top:9px">${bad} blocking issue${bad===1?'':'s'}.
       Fix before the inventory is built — these are the exact defects that misattributed photos on C26-2191.</div>`;
-  }
-
-  /* Imported photographs are evidence with a different provenance. Never let them
-     blend silently into a capture-time set — the map says so and so does this screen. */
-  const imp = all.filter(p=>p.imported);
-  if(imp.length){
-    h += `<div class="flag warn">${imp.length} photo${imp.length===1?' was':'s were'} imported from
-      the phone library rather than captured in the app. ${imp.length===1?'It is':'They are'} flagged
-      <b>imported</b> in PHOTO_MAP.json with the original file date, and the note on each one says so.
-      Check ${imp.length===1?'it belongs':'they belong'} to the unit ${imp.length===1?'it is':'they are'}
-      filed under.</div>`;
   }
 
   h += `<h2>Units</h2>`;
@@ -929,7 +947,9 @@ async function renderReview(){
     });
   });
 
-  h += `<h2>Output</h2>
+  h += `<h2>Destination</h2>
+    <div class="card" id="acctCard"><div class="muted">Checking which OneDrive…</div></div>
+    <h2>Output</h2>
     <div class="card"><div class="muted">
       <b>PHOTO_MAP.json</b> — unit boundaries recorded at capture. Feed it straight to
       equipment-inventory-builder; no vision boundary pass needed.<br><br>
@@ -941,23 +961,7 @@ async function renderReview(){
     <div style="height:26px"></div>`;
 
   $('revBody').innerHTML = h;
-
-  /* Say plainly what is and is not in OneDrive yet. */
-  (async ()=>{
-    const pend = (await pendingPhotos()).length;
-    const box = $('opBox'); if(!box) return;
-    if(!signedIn()){
-      box.innerHTML = `<div class="flag warn">Not signed in to OneDrive — all ${all.length}
-        photo(s) are on this phone only. SETTINGS → Sign in, then tap ONEDRIVE.</div>`;
-    } else if(pend===0 && all.length){
-      box.innerHTML = `<div class="flag ok">All ${all.length} photo(s) are already in OneDrive.
-        Tap ONEDRIVE to refresh PHOTO_MAP.json and get the folder link.</div>`;
-    } else if(pend){
-      box.innerHTML = `<div class="flag warn">${pend} of ${all.length} photo(s) not uploaded yet
-        ${navigator.onLine?'':'— this phone is offline'}. Tap ONEDRIVE to send them.` +
-        (SY.note? `<br><span class="muted">last error: ${SY.note}</span>`:'') + `</div>`;
-    }
-  })();
+  paintDest();
 
   for(const b of S.buildings){
     for(const u of S.units.filter(x=>x.building===b)){
@@ -1061,29 +1065,13 @@ function folderName(){
 
 /* ============================================================
    ONEDRIVE  (OAuth2 PKCE + Microsoft Graph, no SDK)
-
-   Three things broke the old version and all three are fixed here:
-
-   1. The PKCE verifier lived in sessionStorage. Signing in from an installed
-      home-screen app hands off to the browser, and the code came back into a
-      DIFFERENT context with an empty sessionStorage — so the token exchange
-      was skipped and the app returned to "Not signed in" with no error at all.
-      It lives in localStorage now, with a state check and an expiry.
-   2. The authority was hard-coded to /common. A registration that only allows
-      personal Microsoft accounts rejects /common outright. It is a setting now.
-   3. Nothing surfaced WHY a failure happened. Every AADSTS code that actually
-      occurs here is now translated into the specific thing to change.
    ============================================================ */
 const GRAPH = 'https://graph.microsoft.com/v1.0';
+const AUTH  = 'https://login.microsoftonline.com/common/oauth2/v2.0';
 const SCOPE = 'openid profile offline_access User.Read Files.ReadWrite';
-const authBase = () => 'https://login.microsoftonline.com/'
-                     + (loadCfg().authority || 'consumers') + '/oauth2/v2.0';
 /* Normalised so /app/ and /app/index.html produce the SAME redirect URI —
    Azure requires an exact match and only one has to be registered. */
 const redirectUri = () => (location.origin + location.pathname).replace(/index\.html$/i,'');
-
-const PK_V = 'fc_pkce_verifier', PK_S = 'fc_pkce_state', PK_T = 'fc_pkce_at';
-const RET  = 'fc_pending_return';
 
 function b64url(buf){
   return btoa(String.fromCharCode(...new Uint8Array(buf)))
@@ -1094,241 +1082,107 @@ async function pkce(){
   const c = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v)));
   return {v,c};
 }
-
-/* Turn Microsoft's error text into the one thing to go and change. */
-function explain(msg){
-  const m = String(msg||'');
-  if(/AADSTS9002327|cross-origin/i.test(m))
-    return 'The app registration is set up as "Web". It has to be "Single-page application" — '
-         + 'in Azure open the registration → Authentication → remove the redirect URI from Web '
-         + 'and add it under Single-page application.';
-  if(/AADSTS50011|redirect_uri|reply URL/i.test(m))
-    return 'The redirect URI in Azure does not match this app. Register exactly: ' + redirectUri();
-  if(/AADSTS50194|not configured as a multi-tenant|AADSTS700016|was not found in the directory/i.test(m))
-    return 'Account type mismatch. This registration does not accept the account type selected '
-         + 'above — switch "Account type" in Settings, or change the registration\'s supported '
-         + 'account types in Azure.';
-  if(/AADSTS65001|consent/i.test(m))
-    return 'Consent was never granted for Files.ReadWrite. Sign in again and accept the prompt.';
-  if(/AADSTS7000218|client_assertion|client_secret/i.test(m))
-    return 'The registration expects a client secret, which a phone app cannot hold. It must be '
-         + 'registered as a Single-page application (PKCE), with no secret.';
-  if(/invalid_client|AADSTS700054|unauthorized_client/i.test(m))
-    return 'The client ID is wrong, or the registration does not allow this flow. Check the '
-         + 'Application (client) ID in Settings.';
-  return m;
-}
-function authMsg(html, kind){
-  ['authMsg','setupAuthMsg'].forEach(id=>{
-    const el = $(id); if(!el) return;
-    el.innerHTML = html ? `<div class="flag ${kind||'warn'}">${html}</div>` : '';
-  });
-}
-
 async function signIn(){
   const cfg = loadCfg();
-  if(!cfg.clientId){
-    authMsg('Enter the Azure application (client) ID first — Settings → OneDrive.','bad'); return;
-  }
-  /* Sign-in navigates away from the app. Anything typed on the setup screen would be
-     lost on the way back, so park it. */
-  try{
-    localStorage.setItem(RET, JSON.stringify({
-      insured:$('fInsured').value, claim:$('fClaim').value, job:$('fJob').value,
-      bldgs:$('fBldgs').value, reset:$('fReset').value, res:$('fRes').value
-    }));
-  }catch(e){}
-
+  if(!cfg.clientId){ alert('Enter the Azure application (client) ID first.'); return; }
   const {v,c} = await pkce();
-  const state = b64url(crypto.getRandomValues(new Uint8Array(12)));
-  localStorage.setItem(PK_V, v);
-  localStorage.setItem(PK_S, state);
-  localStorage.setItem(PK_T, String(Date.now()));
-
+  sessionStorage.setItem('pkce_v', v);
   const p = new URLSearchParams({
     client_id:cfg.clientId, response_type:'code', redirect_uri:redirectUri(),
-    response_mode:'query', scope:SCOPE, state,
-    code_challenge:c, code_challenge_method:'S256', prompt:'select_account'
+    response_mode:'query', scope:SCOPE, code_challenge:c, code_challenge_method:'S256',
+    /* ALWAYS show the account chooser. Without this, Microsoft silently reuses
+       whichever account the browser already had signed in - which is how a phone
+       and a PC end up uploading to two different OneDrives while both display a
+       near-identical name. Never let the account be chosen for you. */
+    prompt:'select_account'
   });
-  location.href = authBase()+'/authorize?'+p;
+  location.href = AUTH+'/authorize?'+p;
 }
-
 async function handleRedirect(){
   const q = new URLSearchParams(location.search);
-  const code = q.get('code'), err = q.get('error');
-  if(!code && !err) return;
-
-  const clean = () => history.replaceState({},'',redirectUri());
-
-  if(err){
-    clean();
-    authMsg('Sign-in failed: ' + explain(q.get('error_description') || err), 'bad');
-    return;
-  }
-
-  const v = localStorage.getItem(PK_V);
-  const st = localStorage.getItem(PK_S);
-  const at = +(localStorage.getItem(PK_T)||0);
-  clean();
-
-  if(!v){
-    authMsg('Sign-in came back but the security code that started it was gone, so the exchange '
-          + 'could not be completed. Tap SIGN IN again in this same window.','bad');
-    return;
-  }
-  if(st && q.get('state') && st !== q.get('state')){
-    authMsg('Sign-in response did not match the request that started it. Tap SIGN IN again.','bad');
-    return;
-  }
-  if(at && Date.now()-at > 15*60*1000){
-    authMsg('That sign-in took too long and expired. Tap SIGN IN again.','bad');
-    return;
-  }
-
+  const code = q.get('code');
+  if(q.get('error')) alert('Sign-in failed: '+q.get('error_description'));
+  if(!code) return;
+  const v = sessionStorage.getItem('pkce_v');
+  history.replaceState({},'',redirectUri());
+  if(!v) return;
   const cfg = loadCfg();
   try{
-    const r = await fetch(authBase()+'/token',{method:'POST',
+    const r = await fetch(AUTH+'/token',{method:'POST',
       headers:{'Content-Type':'application/x-www-form-urlencoded'},
       body:new URLSearchParams({client_id:cfg.clientId, grant_type:'authorization_code',
         code, redirect_uri:redirectUri(), code_verifier:v, scope:SCOPE})});
     const j = await r.json();
     if(j.error) throw new Error(j.error_description||j.error);
     storeTok(j);
-    if(!j.refresh_token){
-      authMsg('Signed in, but Microsoft did not issue a refresh token — the session will expire '
-            + 'in about an hour. Make sure offline_access is consented.','warn');
-    } else {
-      authMsg('Signed in. Photos will upload as you shoot.','ok');
-    }
-  }catch(e){
-    authMsg('Sign-in could not be completed: ' + explain(e.message), 'bad');
-  }finally{
-    localStorage.removeItem(PK_V); localStorage.removeItem(PK_S); localStorage.removeItem(PK_T);
-  }
+  }catch(e){ alert('Token exchange failed: '+e.message); }
 }
-
-/* Put back whatever was on the setup screen before sign-in navigated away. */
-function restorePending(){
-  let d = null;
-  try{ d = JSON.parse(localStorage.getItem(RET)||'null'); }catch(e){}
-  if(!d) return;
-  localStorage.removeItem(RET);
-  if(d.insured) $('fInsured').value = d.insured;
-  if(d.claim)   $('fClaim').value   = d.claim;
-  if(d.job)     $('fJob').value     = d.job;
-  if(d.bldgs)   $('fBldgs').value   = d.bldgs;
-  if(d.reset)   $('fReset').value   = d.reset;
-  if(d.res)     $('fRes').value     = d.res;
-}
-
 function storeTok(j){
   const cfg = loadCfg();
   cfg.tok = j.access_token; cfg.rtok = j.refresh_token || cfg.rtok;
   cfg.exp = Date.now() + (j.expires_in-120)*1000;
   saveCfg(cfg); paintAuth();
 }
-function signedIn(){ const c = loadCfg(); return !!(c.clientId && (c.rtok || (c.tok && Date.now()<c.exp))); }
-
-let refreshing = null;
-async function token(force){
+async function token(){
   const cfg = loadCfg();
-  if(!force && cfg.tok && Date.now() < cfg.exp) return cfg.tok;
-  if(!cfg.rtok) throw new Error('Not signed in.');
-  if(refreshing) return refreshing;
-  refreshing = (async ()=>{
-    const r = await fetch(authBase()+'/token',{method:'POST',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:new URLSearchParams({client_id:cfg.clientId, grant_type:'refresh_token',
-        refresh_token:cfg.rtok, scope:SCOPE})});
-    const j = await r.json();
-    if(j.error){
-      const c2 = loadCfg(); delete c2.tok; delete c2.rtok; delete c2.exp; saveCfg(c2);
-      throw new Error('Session expired — sign in again.');
-    }
-    storeTok(j); return j.access_token;
-  })().finally(()=>{ refreshing = null; });
-  return refreshing;
-}
-
-async function whoami(){
-  const t = await token();
-  const r = await fetch(GRAPH+'/me',{headers:{Authorization:'Bearer '+t}});
-  if(!r.ok) throw new Error('Graph /me returned '+r.status);
-  return r.json();
+  if(cfg.tok && Date.now() < cfg.exp) return cfg.tok;
+  if(!cfg.rtok) throw new Error('Not signed in — open Settings and sign in.');
+  const r = await fetch(AUTH+'/token',{method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams({client_id:cfg.clientId, grant_type:'refresh_token',
+      refresh_token:cfg.rtok, scope:SCOPE})});
+  const j = await r.json();
+  if(j.error) throw new Error('Session expired — sign in again.');
+  storeTok(j); return j.access_token;
 }
 async function paintAuth(){
   const cfg = loadCfg();
-  const set = txt => ['authState','setupAuthState'].forEach(id=>{ const e=$(id); if(e) e.innerHTML = txt; });
-  if(!cfg.clientId){ set('No client ID set — open Settings.'); return; }
-  if(!cfg.rtok && !cfg.tok){ set('Not signed in.'); return; }
-  set('Checking…');
+  const el = $('authState');
+  if(!cfg.rtok && !cfg.tok){ el.textContent = 'Not signed in.'; return; }
   try{
-    const j = await whoami();
-    const who = j.userPrincipalName || j.mail || j.displayName || 'account';
-    const c2 = loadCfg(); c2.acct = who; saveCfg(c2);
-    set(`Signed in as <b>${who}</b>`);
-    const sb = $('btnSignInSetup'); if(sb) sb.textContent = 'SWITCH ACCOUNT';
-    const sb2 = $('btnSignIn');     if(sb2) sb2.textContent = 'Switch account';
-  }catch(e){ set('Signed out — '+e.message); }
+    const t = await token();
+    const h = {Authorization:'Bearer '+t};
+    const j = await (await fetch(GRAPH+'/me',{headers:h})).json();
+    const who = j.userPrincipalName || j.mail || j.displayName || 'unknown';
+    let drv = '';
+    try{
+      const dr = await (await fetch(GRAPH+'/me/drive',{headers:h})).json();
+      const own = dr.owner && dr.owner.user ? (dr.owner.user.email||dr.owner.user.displayName) : '';
+      drv = `<div class="muted" style="margin-top:4px">Uploads go to the OneDrive of
+             <b>${own||who}</b><br><span style="font-size:11px;word-break:break-all">drive
+             ${dr.id||'?'}</span></div>`;
+    }catch(e){}
+    el.innerHTML = `Signed in as <b>${who}</b>${drv}`;
+  }catch(e){ el.textContent = 'Signed out — '+e.message; }
 }
 
-/* ---------- Graph plumbing with retry ---------- */
-const sleep = ms => new Promise(r=>setTimeout(r,ms));
-
-async function gfetch(url,opts,tries){
-  tries = tries==null ? 4 : tries;
-  let last = '';
-  for(let a=0;a<tries;a++){
-    const t = await token(a>0 && last.startsWith('401'));
-    const o = Object.assign({}, opts);
-    o.headers = Object.assign({}, (opts&&opts.headers)||{}, {Authorization:'Bearer '+t});
-    let r;
-    try{ r = await fetch(url,o); }
-    catch(e){ last = 'network '+e.message; await sleep(800*(a+1)); continue; }
-    if(r.ok) return r;
-
-    let d=''; try{ d = (await r.clone().json()).error.message; }catch(e){}
-    last = `${r.status} ${d||r.statusText}`;
-
-    if(r.status===401){ await sleep(200); continue; }                 // token refresh next pass
-    if(r.status===429 || r.status>=500){
-      const ra = +(r.headers.get('Retry-After')||0);
-      await sleep(ra ? ra*1000 : 900*Math.pow(2,a));
-      continue;
-    }
-    throw new Error(last);                                            // 4xx that retrying won't fix
+async function gfetch(url,opts){
+  const t = await token();
+  opts = opts||{}; opts.headers = Object.assign({}, opts.headers, {Authorization:'Bearer '+t});
+  const r = await fetch(url,opts);
+  if(!r.ok){
+    let d=''; try{ d = (await r.json()).error.message; }catch(e){}
+    throw new Error(`${r.status} ${d||r.statusText}`);
   }
-  throw new Error(last||'request failed');
+  return r;
 }
 const gpath = p => p.split('/').filter(Boolean).map(encodeURIComponent).join('/');
 
-const madeFolders = new Set();
 async function ensureFolder(path){
-  if(madeFolders.has(path)) return path;
+  // create each segment under /me/drive/root
   const segs = path.split('/').filter(Boolean);
   let cur = '';
   for(const s of segs){
-    const next = cur ? cur+'/'+s : s;
-    if(!madeFolders.has(next)){
-      const parent = cur ? `${GRAPH}/me/drive/root:/${gpath(cur)}:/children`
-                         : `${GRAPH}/me/drive/root/children`;
-      try{
-        await gfetch(parent,{method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({name:s, folder:{}, '@microsoft.graph.conflictBehavior':'fail'})});
-      }catch(e){
-        /* Already there is the normal case. Anything else has to surface — the old
-           version swallowed every error here and then failed one file at a time. */
-        if(!/nameAlreadyExists|already exists|409/i.test(e.message)) throw new Error(
-          `could not create folder "${s}" — ${e.message}`);
-      }
-      madeFolders.add(next);
-    }
-    cur = next;
+    const parent = cur ? `${GRAPH}/me/drive/root:/${gpath(cur)}:/children`
+                       : `${GRAPH}/me/drive/root/children`;
+    try{
+      await gfetch(parent,{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({name:s, folder:{}, '@microsoft.graph.conflictBehavior':'fail'})});
+    }catch(e){ if(!/nameAlreadyExists|409/.test(e.message)) { /* keep going */ } }
+    cur = cur ? cur+'/'+s : s;
   }
-  /* Prove it exists rather than assuming the creates worked. */
-  await gfetch(`${GRAPH}/me/drive/root:/${gpath(path)}`);
-  return path;
+  return cur;
 }
 async function putSmall(path,blob,ct){
   return gfetch(`${GRAPH}/me/drive/root:/${gpath(path)}:/content`,
@@ -1339,169 +1193,22 @@ async function putLarge(path,blob){
     {method:'POST', headers:{'Content-Type':'application/json'},
      body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace'}})});
   const {uploadUrl} = await s.json();
-  const CH = 5*327680;                       // 1.6 MB, multiple of 320 KiB
+  const CH = 5*327680; // 1.6 MB, multiple of 320 KiB
   for(let o=0;o<blob.size;o+=CH){
     const end = Math.min(o+CH, blob.size);
-    let ok = false, err = '';
-    for(let a=0;a<3 && !ok;a++){
-      try{
-        const r = await fetch(uploadUrl,{method:'PUT',
-          headers:{'Content-Range':`bytes ${o}-${end-1}/${blob.size}`},
-          body:blob.slice(o,end)});
-        if(r.ok || r.status===202 || r.status===201) ok = true;
-        else { err = 'chunk '+r.status; await sleep(700*(a+1)); }
-      }catch(e){ err = 'chunk '+e.message; await sleep(700*(a+1)); }
-    }
-    if(!ok) throw new Error(err);
-  }
-}
-async function putPhoto(dest, blob){
-  if(blob.size < 4*1024*1024) return putSmall(dest, blob, 'image/jpeg');
-  return putLarge(dest, blob);
-}
-
-const DEFAULT_FOLDER = 'Documents/Claude/Projects/Assessment reports';
-/* The destination is a path INSIDE OneDrive — "Documents/Jobs", not a web address.
-   Pasting a onedrive.live.com URL in here used to be taken literally and the app
-   tried to create a folder called "https:", which OneDrive rejects on the colon. */
-function cleanFolder(raw){
-  let s = String(raw==null?'':raw).trim();
-  if(!s) return DEFAULT_FOLDER;
-  if(/^[a-z][a-z0-9+.-]*:\/\//i.test(s))
-    throw new Error('The destination folder is a web address. It has to be a path inside your '
-      + 'OneDrive instead — for example: ' + DEFAULT_FOLDER);
-  s = s.replace(/\\/g,'/');
-  /* A Windows path to the synced folder is the same destination said a different way:
-     C:/Users/jason/OneDrive/Documents/Jobs  ->  Documents/Jobs */
-  const od = s.split('/').findIndex(x=>/^onedrive/i.test(x.trim()));
-  if(od >= 0) s = s.split('/').slice(od+1).join('/');
-  else s = s.replace(/^[A-Za-z]:\//,'');
-  const segs = s.split('/')
-    .map(x=>x.replace(/[<>:"|?*]/g,'').replace(/^[\s.]+|[\s.]+$/g,'').trim())
-    .filter(Boolean);
-  if(!segs.length)
-    throw new Error('The destination folder is not a usable path. Try: ' + DEFAULT_FOLDER);
-  return segs.join('/');
-}
-function folderNameSafe(){ return folderName(); }
-function destRoot(){ return cleanFolder(loadCfg().folder) + '/' + folderNameSafe(); }
-const subFor = p => p.unit ? 'Bldg-'+(p.building||'NA') : '_site';
-
-/* ============================================================
-   BACKGROUND UPLOADER
-   Each photo goes up seconds after it is taken. A job that ends with a dead
-   battery or a closed tab is already in OneDrive instead of only on the phone.
-   ============================================================ */
-const SY = { running:false, queued:0, failed:0, note:'', mapDirty:false };
-
-function autoOn(){ const c = loadCfg(); return c.auto !== '0' && c.auto !== 0 && c.auto !== false; }
-
-function paintSync(){
-  const el = $('syncPill'); if(!el) return;
-  let txt, cls;
-  if(!signedIn())            { txt = 'NOT SIGNED IN'; cls = 'bad'; }
-  else if(!navigator.onLine) { txt = (SY.queued? SY.queued+' HELD — OFFLINE' : 'OFFLINE'); cls = 'work'; }
-  else if(SY.running)        { txt = '↑ UPLOADING' + (SY.queued? ' · '+SY.queued : ''); cls = 'work'; }
-  else if(SY.failed)         { txt = SY.failed+' FAILED — TAP REVIEW'; cls = 'bad'; }
-  else if(SY.queued)         { txt = SY.queued+' QUEUED'; cls = 'work'; }
-  else                       { txt = '☁ SYNCED'; cls = 'ok'; }
-  el.textContent = txt;
-  el.className = cls;
-}
-
-async function pendingPhotos(){
-  return (await idbAll('photos')).filter(p=>!p.up).sort((a,b)=>a.seq-b.seq);
-}
-
-let pumpTimer = null;
-function kickQueue(delay){
-  if(!autoOn() || !signedIn() || !S) return;
-  clearTimeout(pumpTimer);
-  pumpTimer = setTimeout(()=>pump().catch(()=>{}), delay==null?1200:delay);
-}
-
-async function pump(){
-  if(SY.running || !signedIn() || !navigator.onLine || !S) { paintSync(); return; }
-  SY.running = true; SY.failed = 0; paintSync();
-  try{
-    const root = destRoot();
-    await ensureFolder(root);
-    let list = await pendingPhotos();
-    SY.queued = list.length; paintSync();
-
-    for(const p of list){
-      if(!navigator.onLine) break;
-      try{
-        const sub = subFor(p);
-        await ensureFolder(root+'/'+sub);
-        await putPhoto(`${root}/${sub}/${p.file}`, p.blob);
-        p.up = true; await idbPut('photos', p);
-        SY.mapDirty = true;
-      }catch(e){
-        SY.failed++; SY.note = p.file+' — '+explain(e.message);
-        if(/Not signed in|Session expired/i.test(e.message)) break;
-      }
-      SY.queued = Math.max(0, SY.queued-1);
-      paintSync();
-    }
-
-    if(SY.mapDirty && !SY.queued && !SY.failed){
-      try{ await writeMap(root); SY.mapDirty = false; }catch(e){}
-    }
-  }catch(e){
-    SY.note = explain(e.message);
-    SY.failed = SY.failed || 1;
-  }finally{
-    SY.running = false;
-    SY.queued = (await pendingPhotos()).length;
-    paintSync();
-    if(SY.queued && !SY.failed && navigator.onLine) kickQueue(2500);
+    const r = await fetch(uploadUrl,{method:'PUT',
+      headers:{'Content-Range':`bytes ${o}-${end-1}/${blob.size}`},
+      body:blob.slice(o,end)});
+    if(!r.ok && r.status!==202) throw new Error('chunk '+r.status);
   }
 }
 
-async function writeMap(root){
-  await putSmall(root+'/PHOTO_MAP.json', new Blob([await mapJson()],{type:'application/json'}),'application/json');
-  await putSmall(root+'/PHOTO_MAP.csv',  new Blob([await mapCsv()],{type:'text/csv'}),'text/csv');
-}
-
-window.addEventListener('online',  ()=>{ paintSync(); kickQueue(500); });
-window.addEventListener('offline', paintSync);
-
-/* ---------- connection self-test ---------- */
-async function testConnection(){
-  authMsg('Testing…','warn');
-  const cfg = loadCfg();
-  if(!cfg.clientId){ authMsg('No client ID set.','bad'); return; }
-  try{
-    const me = await whoami();
-    const who = me.userPrincipalName || me.mail || me.displayName || 'unknown';
-    const dr = await (await gfetch(GRAPH+'/me/drive')).json();
-    const base = cleanFolder(cfg.folder);
-    const probe = base + '/_field_capture_test';
-    await ensureFolder(probe);
-    await putSmall(probe+'/hello.txt', new Blob(['ok '+new Date().toISOString()],{type:'text/plain'}),'text/plain');
-    const back = await (await gfetch(`${GRAPH}/me/drive/root:/${gpath(probe)}`)).json();
-    try{ await gfetch(`${GRAPH}/me/drive/root:/${gpath(probe)}`,{method:'DELETE'}); }catch(e){}
-    madeFolders.delete(probe);
-    authMsg(`Working. Signed in as <b>${who}</b> · drive <b>${dr.driveType||'?'}</b> · wrote and
-      read back a test file in <b>${base}</b>.` +
-      (back.webUrl? ` <a href="${back.webUrl}" target="_blank" rel="noopener">open</a>`:''), 'ok');
-  }catch(e){
-    authMsg('Test failed: ' + explain(e.message), 'bad');
-  }
-}
-
-/* ---------- manual / catch-up upload ---------- */
 async function uploadAll(){
   const box = $('opBox');
   const cfg = loadCfg();
   if(!cfg.clientId){
     box.innerHTML = `<div class="flag warn">No Azure client ID set. Open SETTINGS and paste it, or
       use EXPORT ZIP — the ZIP needs no setup at all.</div>`; return;
-  }
-  if(!signedIn()){
-    box.innerHTML = `<div class="flag bad">Not signed in. Open SETTINGS → Sign in, then tap
-      ONEDRIVE again.</div>`; return;
   }
   box.innerHTML = `<div class="card"><b>Uploading to OneDrive…</b>
     <div id="progWrap"><div id="progBar"></div></div><div class="log" id="opLog"></div></div>`;
@@ -1512,38 +1219,46 @@ async function uploadAll(){
     /* Say WHICH account before moving a single byte. "It uploaded fine" is
        useless if the files went to a different OneDrive than the one you sync. */
     try{
-      const me = await whoami();
+      const t = await token();
+      const h = {Authorization:'Bearer '+t};
+      const me = await (await fetch(GRAPH+'/me',{headers:h})).json();
       log('account: '+(me.userPrincipalName||me.mail||me.displayName||'unknown'));
+      /* The drive id is the ONLY unambiguous answer to "which OneDrive". Two
+         accounts can share a display name; they cannot share a drive id. */
+      const dr = await (await fetch(GRAPH+'/me/drive',{headers:h})).json();
+      const own = dr.owner && dr.owner.user ? (dr.owner.user.email||dr.owner.user.displayName) : '';
+      if(own) log('drive owner: '+own);
+      if(dr.id) log('drive id: '+dr.id);
     }catch(e){ log('account: could not read — '+e.message); }
 
-    const root = destRoot();
+    const base = (cfg.folder || 'Documents/Claude/Projects/Assessment reports')
+                   .replace(/^\/+|\/+$/g,'');
+    const root = base+'/'+folderName();
     log('folder: '+root);
     await ensureFolder(root);
 
     const all = (await idbAll('photos')).sort((a,b)=>a.seq-b.seq);
-    const todo = all.filter(p=>!p.up);
-    log(`${all.length} photos · ${all.length-todo.length} already uploaded · ${todo.length} to send`);
-
-    const bldgs = [...new Set(todo.map(subFor))];
+    const bldgs = [...new Set(all.map(p=>p.unit ? 'Bldg-'+(p.building||'NA') : '_site'))];
     for(const b of bldgs) await ensureFolder(root+'/'+b);
 
     let done=0, fail=0;
-    for(const p of todo){
-      const dest = `${root}/${subFor(p)}/${p.file}`;
+    for(const p of all){
+      const sub = p.unit ? 'Bldg-'+(p.building||'NA') : '_site';
+      const dest = `${root}/${sub}/${p.file}`;
       try{
-        await putPhoto(dest, p.blob);
+        if(p.blob.size < 4*1024*1024) await putSmall(dest,p.blob,'image/jpeg');
+        else await putLarge(dest,p.blob);
         p.up = true; await idbPut('photos',p);
-      }catch(e){ fail++; log('FAIL '+p.file+' — '+explain(e.message)); }
-      done++; bar.style.width = (done/Math.max(1,todo.length)*100)+'%';
-      if(done%10===0) log(`${done}/${todo.length} uploaded`);
+      }catch(e){ fail++; log('FAIL '+p.file+' — '+e.message); }
+      done++; bar.style.width = (done/all.length*100)+'%';
+      if(done%10===0) log(`${done}/${all.length} uploaded`);
     }
-    bar.style.width = '100%';
-    log(`${done}/${todo.length} uploaded`);
+    log(`${done}/${all.length} uploaded`);
 
-    await writeMap(root);
+    const enc = new TextEncoder();
+    await putSmall(root+'/PHOTO_MAP.json', new Blob([await mapJson()],{type:'application/json'}),'application/json');
+    await putSmall(root+'/PHOTO_MAP.csv',  new Blob([await mapCsv()],{type:'text/csv'}),'text/csv');
     log('photo map written');
-    SY.mapDirty = false;
-    SY.queued = (await pendingPhotos()).length; SY.failed = fail; paintSync();
 
     /* Ask OneDrive where it actually put them and hand back a tappable link.
        A green banner you cannot verify is worse than no banner. */
@@ -1551,8 +1266,7 @@ async function uploadAll(){
     try{
       const r = await gfetch(`${GRAPH}/me/drive/root:/${gpath(root)}`);
       url = (await r.json()).webUrl || '';
-      const c2 = loadCfg();
-      c2.lastUpload = url; c2.lastUploadAt = new Date().toISOString(); saveCfg(c2);
+      cfg.lastUpload = url; cfg.lastUploadAt = new Date().toISOString(); saveCfg(cfg);
       log('landed: '+url);
     }catch(e){ log('could not read back the folder link — '+e.message); }
 
@@ -1565,12 +1279,12 @@ async function uploadAll(){
 
     box.insertAdjacentHTML('beforeend', (fail
       ? `<div class="flag warn">Finished with ${fail} failure(s). Tap ONEDRIVE again to retry —
-         only the ones that failed are re-sent.</div>`
-      : `<div class="flag ok">All ${all.length} photos plus PHOTO_MAP.json / .csv are in
+         successful files are simply overwritten.</div>`
+      : `<div class="flag ok">All ${all.length} photos plus PHOTO_MAP.json / .csv uploaded to
          <b>${root}</b>. The photos are inside the <b>Bldg-…</b> subfolders, not loose in
          that folder.</div>`) + link);
   }catch(e){
-    box.insertAdjacentHTML('beforeend', `<div class="flag bad">Upload stopped: ${explain(e.message)}</div>`);
+    box.insertAdjacentHTML('beforeend', `<div class="flag bad">Upload stopped: ${e.message}</div>`);
   }
 }
 
@@ -1582,37 +1296,27 @@ function show(id){
   $(id).classList.add('on');
 }
 
-$('btnSignInSetup').onclick  = signIn;
-$('btnSignOutSetup').onclick = ()=>{ const c=loadCfg(); delete c.tok; delete c.rtok; delete c.exp;
-  saveCfg(c); paintAuth(); paintSync(); authMsg('Signed out.','warn'); };
-$('btnTestSetup').onclick    = testConnection;
-
 $('btnStart').onclick = async ()=>{
   const insured = $('fInsured').value.trim();
   const claim   = $('fClaim').value.trim();
   if(!insured || !claim){ alert('Insured and claim # are required.'); return; }
   let bl = $('fBldgs').value.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
   if(!bl.length) bl = ['MAIN'];
-  if(!signedIn() && !confirm(
-      'You are not signed in to OneDrive, so photos will stay on this phone until you sign in '
-      + 'and upload them.\n\nStart shooting anyway?')) return;
   const existing = await loadState();
   if(existing && (existing.units||[]).length &&
      !confirm('A job for '+existing.insured+' is already on this phone with '+
               existing.units.length+' unit(s). Starting a new one will replace it. '+
               'Export or upload first if you have not. Continue?')) return;
   await idbClear('photos');
-  S = newJob({insured, claim, job:$('fJob').value.trim(),
+  S = newJob({insured, claim, gtp:$('fGtp').value.trim(),
               buildings:bl, reset:$('fReset').value, resPx:+$('fRes').value});
   await saveState();
   show('scCam'); await startCam(); stepIdx=0; renderCam();
-  kickQueue(1500);
 };
 $('btnResume').onclick = async ()=>{
   const st = await loadState();
   if(!st){ alert('No saved job on this phone.'); return; }
   S = st; show('scCam'); await startCam(); stepIdx=0; renderCam();
-  kickQueue(1500);
 };
 
 $('shutter').onclick   = ()=>shoot({});
@@ -1620,7 +1324,6 @@ $('btnSite').onclick   = ()=>shoot({site:true, note:'establishing / site overvie
 $('advanceBtn').onclick= ()=>setStep(stepIdx+1);
 $('btnNewUnit').onclick= newUnit;
 $('btnCloseUnit').onclick = closeUnit;
-$('btnImport').onclick  = importFromLibrary;
 $('btnReview').onclick = async ()=>{ stopCam(); show('scRev'); await renderReview(); };
 $('selBldg').onchange  = async e=>{ S.bldg=e.target.value; S.unit=null; await saveState(); renderCam(); };
 
@@ -1632,8 +1335,6 @@ function openCfg(from){
   cfgReturn = from;
   const c = loadCfg();
   $('cfgClient').value = c.clientId||'';
-  $('cfgAuthority').value = c.authority || 'consumers';
-  $('cfgAuto').value = (c.auto==='0'||c.auto===0||c.auto===false) ? '0' : '1';
   $('cfgFolder').value = c.folder||'Documents/Claude/Projects/Assessment reports';
   $('lastUp').innerHTML = c.lastUpload
     ? `<a href="${c.lastUpload}" target="_blank" rel="noopener"
@@ -1646,40 +1347,23 @@ function openCfg(from){
     `${S?S.units.length:0} units · ${a.length} photos · ${(a.reduce((x,p)=>x+p.blob.size,0)/1048576).toFixed(1)} MB on this phone`);
   $('redirNote').innerHTML = 'Redirect URI to register in Azure:<br><b style="word-break:break-all">'
     + redirectUri() + '</b>';
-  $('buildLine').textContent = `Field Capture ${APP_VERSION} · built ${APP_BUILT}`;
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   $('standaloneNote').style.display = standalone ? 'block' : 'none';
   paintAuth(); show('scCfg');
 }
 $('btnCfg').onclick          = ()=>openCfg('scRev');
 $('btnCfgFromSetup').onclick = ()=>openCfg('scSetup');
-function saveCfgFields(){
-  const c=loadCfg();
-  c.clientId=$('cfgClient').value.trim();
-  c.authority=$('cfgAuthority').value;
-  c.auto=$('cfgAuto').value;
-  try{
-    c.folder = cleanFolder($('cfgFolder').value);
-    $('cfgFolder').value = c.folder;          // show what will actually be used
-    authMsg('');
-  }catch(e){
-    c.folder = DEFAULT_FOLDER;
-    $('cfgFolder').value = DEFAULT_FOLDER;
-    authMsg(e.message + ' — reset to the default.','warn');
-  }
-  saveCfg(c); return c;
-}
-$('btnCfgBack').onclick= async ()=>{ saveCfgFields(); madeFolders.clear();
-  show(cfgReturn); paintSync();
-  if(cfgReturn==='scRev') await renderReview();
-  else kickQueue(800); };
-$('btnSignIn').onclick = ()=>{ saveCfgFields(); signIn(); };
-$('btnTest').onclick   = ()=>{ saveCfgFields(); madeFolders.clear(); testConnection(); };
+$('btnCfgBack').onclick= async ()=>{ const c=loadCfg();
+  c.clientId=$('cfgClient').value.trim(); c.folder=$('cfgFolder').value.trim(); saveCfg(c);
+  show(cfgReturn);
+  if(cfgReturn==='scRev') await renderReview(); };
+$('btnSignIn').onclick = ()=>{ const c=loadCfg(); c.clientId=$('cfgClient').value.trim();
+  c.folder=$('cfgFolder').value.trim(); saveCfg(c); signIn(); };
 $('btnSignOut').onclick= ()=>{ const c=loadCfg(); delete c.tok; delete c.rtok; delete c.exp;
-  saveCfg(c); paintAuth(); paintSync(); authMsg('Signed out.','warn'); };
+  saveCfg(c); paintAuth(); };
 $('btnEditClaim').onclick = ()=>{
   if(!S) return;
-  $('fInsured').value=S.insured; $('fClaim').value=S.claim; $('fJob').value=S.job||'';
+  $('fInsured').value=S.insured; $('fClaim').value=S.claim; $('fGtp').value=S.gtp||'';
   $('fBldgs').value=S.buildings.join(', '); show('scSetup');
 };
 $('btnWipe').onclick = async ()=>{
@@ -1692,8 +1376,22 @@ $('btnWipe').onclick = async ()=>{
 /* keep the camera alive when returning to the tab */
 document.addEventListener('visibilitychange', ()=>{
   if(document.hidden) return;
-  if($('scCam').classList.contains('on') && !stream) startCam();
+  if($('scCam').classList.contains('on')) wakeCam();
 });
+window.addEventListener('focus', ()=>{ if($('scCam').classList.contains('on')) wakeCam(); });
+
+/* Catch-all: iOS pauses the element for reasons we cannot always predict
+   (alert dismissal, keyboard, rotation). Throttled so a genuinely dead track
+   cannot spin. */
+let lastWake = 0;
+$('video').addEventListener('pause', ()=>{
+  const now = performance.now();
+  if(now - lastWake < 400) return;
+  lastWake = now;
+  setTimeout(wakeCam, 80);
+});
+$('zoomR').addEventListener('input', e=>setZoom(e.target.value));
+$('video').addEventListener('dblclick', ()=>setZoom(zoom > 1 ? 1 : 2));
 window.addEventListener('beforeunload', e=>{
   if(S && S.units.some(u=>u.photos.length)) { e.preventDefault(); e.returnValue=''; }
 });
@@ -1702,8 +1400,6 @@ window.addEventListener('beforeunload', e=>{
 (async ()=>{
   db = await openDB();
   await handleRedirect();
-  restorePending();
-  paintAuth();
   const st = await loadState();
   if(st && (st.units||[]).length){
     const n = st.units.reduce((a,u)=>a+u.photos.length,0);
@@ -1711,11 +1407,6 @@ window.addEventListener('beforeunload', e=>{
       `Saved on this phone: <b>${st.insured}</b> · ${st.claim} — ${st.units.length} units, ${n} photos.`;
   } else {
     $('resumeInfo').textContent = 'No saved job on this phone.';
-  }
-  paintSync();
-  if(st && (st.units||[]).length && signedIn()){
-    /* Photos from a previous session that never made it up go now, unprompted. */
-    S = S || st; kickQueue(2500);
   }
   if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();

@@ -1,7 +1,7 @@
 {
-  "name": "Field Capture",
-  "short_name": "Field Capture",
-  "description": "Guided unit-by-unit job-site photo capture for MEP assessments.",
+  "name": "Field Cam",
+  "short_name": "Field Cam",
+  "description": "Guided unit-by-unit job-site photo capture for MEP insurance assessments.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
