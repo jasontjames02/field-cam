@@ -173,6 +173,7 @@ button:disabled{opacity:.4}
   <button class="ghost" style="width:100%;margin-top:9px" id="btnResume">Resume saved job</button>
   <div class="muted" id="resumeInfo" style="margin-top:10px;text-align:center"></div>
   <button class="ghost" style="width:100%;margin-top:16px" id="btnCfgFromSetup">⚙ Settings &amp; OneDrive</button>
+  <div class="muted" style="margin-top:14px;text-align:center" id="buildTag"></div>
  </div>
 </div>
 
@@ -239,10 +240,18 @@ button:disabled{opacity:.4}
    <input id="cfgFolder" placeholder="Documents/Claude/Projects/Assessment reports">
    <div class="muted" style="margin-top:10px">A folder named
    <b>&lt;Insured&gt;_&lt;Claim&gt;_Photos</b> is created inside it for each job.</div>
+   <label>Force this account <span style="text-transform:none">(optional — paste the email
+     you want; stops Microsoft picking for you)</span></label>
+   <input id="cfgHint" placeholder="you@example.com" autocapitalize="off" autocorrect="off"
+     spellcheck="false" inputmode="email">
    <div class="row" style="margin-top:12px">
     <button class="blue" id="btnSignIn">Sign in</button>
     <button class="ghost" id="btnSignOut">Sign out</button>
    </div>
+   <button class="ghost" style="width:100%;margin-top:9px;color:var(--warn);border-color:#6b5320"
+     id="btnMsLogout">Sign out of Microsoft entirely, then sign in</button>
+   <div class="muted" style="margin-top:7px">Use that when Microsoft keeps defaulting to the
+   wrong account. It clears the Microsoft session in this browser, not just the app.</div>
    <div class="muted" id="authState" style="margin-top:10px">Not signed in.</div>
    <div id="lastUp" style="margin-top:10px"></div>
    <div class="muted" id="redirNote" style="margin-top:10px"></div>
@@ -279,6 +288,7 @@ button:disabled{opacity:.4}
    photo_map consumed by equipment-inventory-builder / photo-report.
    ============================================================ */
 
+const BUILD = 'v8 · 2026-08-20';
 const $ = id => document.getElementById(id);
 const pad = (n,w) => String(n).padStart(w,'0');
 
@@ -1096,6 +1106,7 @@ async function signIn(){
        near-identical name. Never let the account be chosen for you. */
     prompt:'select_account'
   });
+  if(cfg.hint) p.set('login_hint', cfg.hint);
   location.href = AUTH+'/authorize?'+p;
 }
 async function handleRedirect(){
@@ -1336,6 +1347,7 @@ function openCfg(from){
   const c = loadCfg();
   $('cfgClient').value = c.clientId||'';
   $('cfgFolder').value = c.folder||'Documents/Claude/Projects/Assessment reports';
+  $('cfgHint').value = c.hint||'';
   $('lastUp').innerHTML = c.lastUpload
     ? `<a href="${c.lastUpload}" target="_blank" rel="noopener"
          style="display:block;padding:12px;border-radius:10px;background:var(--accent2);
@@ -1354,11 +1366,21 @@ function openCfg(from){
 $('btnCfg').onclick          = ()=>openCfg('scRev');
 $('btnCfgFromSetup').onclick = ()=>openCfg('scSetup');
 $('btnCfgBack').onclick= async ()=>{ const c=loadCfg();
-  c.clientId=$('cfgClient').value.trim(); c.folder=$('cfgFolder').value.trim(); saveCfg(c);
+  c.clientId=$('cfgClient').value.trim(); c.folder=$('cfgFolder').value.trim();
+  c.hint=$('cfgHint').value.trim(); saveCfg(c);
   show(cfgReturn);
   if(cfgReturn==='scRev') await renderReview(); };
 $('btnSignIn').onclick = ()=>{ const c=loadCfg(); c.clientId=$('cfgClient').value.trim();
-  c.folder=$('cfgFolder').value.trim(); saveCfg(c); signIn(); };
+  c.folder=$('cfgFolder').value.trim(); c.hint=$('cfgHint').value.trim(); saveCfg(c); signIn(); };
+/* Clearing the app's tokens is not enough: Microsoft keeps its own session cookie
+   in the browser and will silently reuse it. This ends that session too. */
+$('btnMsLogout').onclick = ()=>{
+  const c=loadCfg(); c.clientId=$('cfgClient').value.trim();
+  c.folder=$('cfgFolder').value.trim(); c.hint=$('cfgHint').value.trim();
+  delete c.tok; delete c.rtok; delete c.exp; saveCfg(c);
+  sessionStorage.setItem('afterLogout','1');
+  location.href = AUTH+'/logout?post_logout_redirect_uri='+encodeURIComponent(redirectUri());
+};
 $('btnSignOut').onclick= ()=>{ const c=loadCfg(); delete c.tok; delete c.rtok; delete c.exp;
   saveCfg(c); paintAuth(); };
 $('btnEditClaim').onclick = ()=>{
@@ -1408,7 +1430,10 @@ window.addEventListener('beforeunload', e=>{
   } else {
     $('resumeInfo').textContent = 'No saved job on this phone.';
   }
-  if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+  $('buildTag').textContent = 'Field Cam ' + BUILD;
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').then(r=>{ r.update(); }).catch(()=>{});
+  }
 })();
 </script>
 </body>
