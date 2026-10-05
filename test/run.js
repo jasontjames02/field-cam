@@ -151,6 +151,11 @@ function verify(dir, label){
   await page.screenshot({path:path.join(OUT,'cam_unit1.png')});
   await shot(1);
   T('number shot advances to DATA TAG', /NAMEPLATE/.test(await txt('#bTitle')));
+  { const d = await ev(async ()=>{ const u = curUnit(); const r = await idbGet('photos', u.photos[0].id); const b = await createImageBitmap(r.blob);
+      const v = document.getElementById('video'); return {w:b.width, h:b.height, cw:v.clientWidth, ch:v.clientHeight, vw:v.videoWidth, vh:v.videoHeight}; });
+    T('a viewfinder photo has the shape of the viewfinder, cut from the camera frame at full size',
+      Math.abs(d.w/d.h - d.cw/d.ch) < 0.02 && (d.w===d.vw || d.h===d.vh) && d.w<=d.vw && d.h<=d.vh, JSON.stringify(d));
+    console.log('  INFO  camera frame '+d.vw+'x'+d.vh+', viewfinder '+d.cw+'x'+d.ch+', saved photo '+d.w+'x'+d.h); }
   T('DATA TAG is an ordinary viewfinder step: no phone-camera wording, no setting for it',
     !/own camera/i.test(await txt('#bHint')) && (await txt('#btnAltCam'))==='PHONE CAMERA' && (await page.locator('#cfgTagCam').count())===0);
   T('step wording carries no chalk colour', !/green/i.test(await page.locator('#scCam').innerText()));

@@ -116,3 +116,4 @@ are checked on the phone after each release.
 | 2026-10-04 | 3.0 | v10 base with the 08-12 work restored; pinned OneDrive, reconcile, job guards, larger viewfinder, automatic next unit, current chalk codes |
 | 2026-10-04 | 3.0.1 | The account is named in full in `config.js`; look-alike accounts are refused before confirmation; a wrong confirmation is cleared. Found on the first phone check: a sign-in with the name alone landed in a second account, and it was confirmed |
 | 2026-10-04 | 3.0.2 | Data tags are shot in the viewfinder again; the phone's own camera is no longer the default for them and the setting is gone |
+| 2026-10-04 | 3.0.3 | A viewfinder photo is cut to what the viewfinder showed. The camera frame is square and the viewfinder is tall, so until now the saved photo ran wider than what was framed |

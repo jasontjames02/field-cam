@@ -2,7 +2,7 @@
    BUILD is bumped on every release. Changing this file byte-wise is what makes
    the browser install a new worker at all; a service worker whose file never
    changes is never replaced, and its cache is served forever. */
-const BUILD = '3.0.2-2026-10-04';
+const BUILD = '3.0.3-2026-10-04';
 const C = 'fieldcapture-' + BUILD;
 
 /* The app is fetched fresh and stored the moment a release installs, so the

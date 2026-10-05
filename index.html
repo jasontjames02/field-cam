@@ -410,7 +410,7 @@ ul.plain li{margin:2px 0}
    ============================================================ */
 
 const APP_NAME    = 'Field Capture';
-const APP_VERSION = '3.0.2';
+const APP_VERSION = '3.0.3';
 const APP_BUILT   = '2026-10-04';
 const MAP_SCHEMA  = 1;
 const DEFAULT_FOLDER = 'Documents/Claude/Projects/Assessment reports';
@@ -1005,10 +1005,19 @@ function grabFrame(maxPx){
   const v = $('video');
   const vw = v.videoWidth, vh = v.videoHeight;
   if(!vw || !vh) return null;
+  /* The photo is what the viewfinder shows, no more. The preview fills the
+     viewfinder and lets the camera's frame run past its edges (object-fit:
+     cover), so the part that was on screen is what gets cut out here. */
+  let fw = vw, fh = vh;
+  const cw = v.clientWidth, ch = v.clientHeight;
+  if(cw > 0 && ch > 0){
+    const k = Math.max(cw / vw, ch / vh);
+    fw = Math.min(vw, cw / k); fh = Math.min(vh, ch / k);
+  }
   /* Digital zoom crops the centre so the photo matches what the preview shows.
      Native zoom already happened in the sensor, so don't crop twice. */
   const z  = nativeZoom ? 1 : zoom;
-  const sw = vw / z, sh = vh / z;
+  const sw = fw / z, sh = fh / z;
   const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
   const sc = Math.min(1, maxPx / Math.max(sw, sh));
   const cv = $('cv');
