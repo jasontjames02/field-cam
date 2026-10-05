@@ -8,6 +8,6 @@ window.FIELD_CAPTURE_CONFIG = {
   clientId:  "",
   authority: "",
   folder:    "",
-  account:   "",
+  account:   "jasontjames1974@gmail.com",
   driveId:   ""
 };

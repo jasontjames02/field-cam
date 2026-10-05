@@ -33,6 +33,13 @@ Live app: https://jasontjames02.github.io/field-cam/ (GitHub Pages, served from 
 1. **Photos only go to one OneDrive.** The first sign-in shows the account, the drive id and what
    is in the destination folder, and asks once. That drive is then pinned; every upload is
    addressed to it by drive id, and a sign-in to any other drive is refused and thrown away.
+   **The account is named in full in `config.js`** (`account`). A Microsoft account is its whole
+   address: the same name without the part after the `@` is a different account with a OneDrive of
+   its own, and an earlier build left the destination path in that one too. So sign-in sends the
+   whole address, any other account is turned away before it can be offered for confirmation, and
+   a OneDrive confirmed on a device for a different account is cleared when the app opens (a job
+   bound to it is sent again in full). Without `config.js`, the Settings field does the same job
+   and refuses a name that is not a whole address.
 2. **The destination folder is never created.** If it is not in the drive, the drive is refused.
    Only the job folder (`<Insured>_<Claim>_Photos`) and its `Bldg-*` / `_site` subfolders are made.
 3. **Upload as you shoot**, each file's size checked against what OneDrive reports.
@@ -105,3 +112,4 @@ are checked on the phone after each release.
 | 2026-08-12 | 2.0 – 2.2 | Upload as you shoot, sign-in fixes, IMPORT, version in the map |
 | 2026-08-19, 08-20 | v8 – v10 | Rebuilt from the July code: gained lens picker, zoom and camera wake-up, lost the 08-12 work |
 | 2026-10-04 | 3.0 | v10 base with the 08-12 work restored; pinned OneDrive, reconcile, job guards, larger viewfinder, automatic next unit, current chalk codes |
+| 2026-10-04 | 3.0.1 | The account is named in full in `config.js`; look-alike accounts are refused before confirmation; a wrong confirmation is cleared. Found on the first phone check: a sign-in with the name alone landed in a second account, and it was confirmed |

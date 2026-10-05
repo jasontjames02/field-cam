@@ -6,6 +6,11 @@ const { chromium } = require(NM+'playwright');
 const sharp = require(NM+'sharp');
 const fake = require('./fake.js');
 const { state } = fake;
+/* The suite drives the app with nothing fixed by config.js, whatever the
+   repository's own config.js holds; sections that test config.js set it. */
+const CFG = o => 'window.FIELD_CAPTURE_CONFIG = '+JSON.stringify(Object.assign({clientId:'',authority:'',folder:'',account:'',driveId:''}, o||{}))+';\n';
+const GMAIL = 'jasontjames1974@gmail.com';
+state.config = CFG();
 
 const SITE = path.resolve(process.argv[2]);
 const VERIFIER = path.resolve(process.argv[3]);
@@ -359,7 +364,7 @@ function verify(dir, label){
   T('read_photo_map.py exits 0 on the folder as uploaded', v.code===0, v.out.slice(0,900));
   const map = JSON.parse(fs.readFileSync(path.join(dumpDir,'PHOTO_MAP.json'),'utf8'));
   T('map header: Field Capture, app_version, app_built, map_schema, job_no',
-    map.source==='Field Capture' && map.app_version==='3.0' && !!map.app_built && map.map_schema===1 && 'job_no' in map.claim && !('gtp_no' in map.claim));
+    map.source==='Field Capture' && /^3\.0(\.\d+)?$/.test(map.app_version) && !!map.app_built && map.map_schema===1 && 'job_no' in map.claim && !('gtp_no' in map.claim));
   T('map carries the scope with new codes and the takeoff note',
     map.units.some(u=>u.scope==='ECON DUCT INS NT M' && u.note==='12 LF 14x10 INS TAPE'), JSON.stringify(map.units));
   { const rt = map.photo_map.filter(e=>e.retaken_at);
@@ -550,7 +555,10 @@ function verify(dir, label){
   await signInAs('B');
   T('a drive pinned by setup link refuses a different account on the very first sign-in', /WRONG ONEDRIVE/.test(await txt('#setupAuthMsg')));
   await signInAs('A');
-  T('sign-in on a pinned browser sends login_hint and skips the chooser', state.authorizeHits.at(-1).login_hint==='jasontjames1974@gmail.com' && !state.authorizeHits.at(-1).prompt);
+  T('the try after a wrong OneDrive shows the chooser, with the pinned address filled in', state.authorizeHits.at(-1).login_hint==='jasontjames1974@gmail.com' && state.authorizeHits.at(-1).prompt==='select_account');
+  await ev(()=>dropTokens()); await page.reload(); await until(()=>txt('#buildTag').then(t=>/3\.0/.test(t)));
+  await signInAs('A');
+  T('sign-in on a pinned browser sends login_hint and skips the chooser', state.authorizeHits.at(-1).login_hint==='jasontjames1974@gmail.com' && !state.authorizeHits.at(-1).prompt, JSON.stringify(state.authorizeHits.at(-1)));
   T('account-type setting is used in the sign-in address', /^\/consumers\//.test(state.authorizeHits.at(-1)._path), state.authorizeHits.at(-1)._path);
 
   await page.click('#btnCfgFromSetup'); await page.selectOption('#cfgAuto','0'); await page.selectOption('#cfgTagCam','live'); await page.click('#btnCfgBack');
@@ -631,7 +639,7 @@ function verify(dir, label){
   /* ---------- 19. config.js in the repository ---------- */
   mark('settings fixed by config.js');
   await ctx.close(); fake.reset();
-  state.siteDir = path.resolve(SITE, '..', 'site_cfg');
+  state.siteDir = path.resolve(SITE, '..', 'site_cfg'); state.config = null;
   ctx = await newCtx(); page = await ctx.newPage(); hook(page);
   await page.goto(URL0); await until(()=>txt('#buildTag').then(t=>/3\.0/.test(t)));
   T('config.js supplies the client ID with nothing typed', await ev(()=>clientId()==='99999999-aaaa-bbbb-cccc-dddddddddddd' && authority()==='consumers'));
@@ -641,10 +649,72 @@ function verify(dir, label){
   await signInAs('B');
   T('config.js pin refuses another OneDrive', /WRONG ONEDRIVE/.test(await txt('#setupAuthMsg')));
   await signInAs('A');
+  await ev(()=>dropTokens()); await page.reload(); await until(()=>txt('#buildTag').then(t=>/3\.0/.test(t)));
+  await signInAs('A');
   T('config.js sign-in uses the configured account type and goes straight to the pinned account',
     /Signed in as/.test(await txt('#setupAuthMsg')) && /^\/consumers\//.test(state.authorizeHits.at(-1)._path) && !state.authorizeHits.at(-1).prompt,
     JSON.stringify(state.authorizeHits.at(-1)));
-  state.siteDir = null;
+  state.siteDir = null; state.config = CFG();
+
+  /* ---------- 19b. the account, named in full ---------- */
+  mark('the app carries the OneDrive account');
+  { const vm = require('vm'), box = {window:{}}; vm.runInNewContext(fs.readFileSync(path.join(SITE,'config.js'),'utf8'), box);
+    const a = (box.window.FIELD_CAPTURE_CONFIG||{}).account||'';
+    T('the repository\'s config.js parses, and any account in it is a whole address', a==='' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a), a); }
+  const fresh = async cfg => { await ctx.close(); fake.reset(); state.config = cfg; ctx = await newCtx(); page = await ctx.newPage(); hook(page);
+    await page.goto(URL0); await until(()=>txt('#buildTag').then(t=>/3\.0/.test(t))); };
+  const setClient = async () => { await page.click('#btnCfgFromSetup'); await page.fill('#cfgClient','11111111-2222-3333-4444-555555555555'); await page.click('#btnCfgBack'); await until(()=>on('scSetup')); };
+  const lastHit = () => state.authorizeHits.at(-1);
+
+  await fresh(CFG({account:GMAIL}));
+  await page.click('#btnCfgFromSetup');
+  T('the account from config.js shows in Settings and cannot be edited there', await page.locator('#cfgHint').isDisabled() && (await page.inputValue('#cfgHint'))===GMAIL);
+  await page.click('#btnCfgBack'); await setClient();
+  await signInAs('S');
+  T('sign-in sends the whole address and goes straight to that account', lastHit().login_hint===GMAIL && !lastHit().prompt, JSON.stringify(lastHit()));
+  T('the same name without the rest of the address is a different account, and is turned away',
+    /WRONG ACCOUNT/.test(await txt('#setupAuthMsg')) && /jasontjames1974@gmail\.com/.test(await txt('#setupAuthMsg')), await txt('#setupAuthMsg'));
+  await sleep(600);
+  T('a wrong account is never offered for confirmation: no question, nothing pinned, signed out',
+    (await page.locator('#pinYes').count())===0 && await ev(()=>!loadCfg().pin && !signedIn() && !pinnedId()));
+  await signInAs('A');
+  T('the try after a wrong account shows the chooser with the address filled in', lastHit().prompt==='select_account' && lastHit().login_hint===GMAIL, JSON.stringify(lastHit()));
+  await pinYes();
+  T('the named account is confirmed and pinned', await ev(()=>pinnedId()==='DRIVE_A' && loadCfg().pin.who==='jasontjames1974@gmail.com'));
+  T('once the right account is in, the chooser is no longer forced', await ev(()=>!localStorage.getItem('fc_choose')));
+
+  /* what happened on the phone: the look-alike was confirmed before the app knew the account */
+  await fresh(CFG());
+  await setClient();
+  await signInAs('S'); await pinYes();
+  T('3.0 as first released let the look-alike be confirmed', await ev(()=>pinnedId()==='DRIVE_S' && loadCfg().pin.who==='jasontjames1974'));
+  await page.fill('#fInsured','WRONGPIN'); await page.fill('#fClaim','W-1'); await page.click('#btnStart');
+  await until(()=>on('scCam')); await camReady(); await shot(1); await synced();
+  T('...and a job started then went to that OneDrive', !!jobFolder('S','WRONGPIN_W-1_Photos') && !jobFolder('A','WRONGPIN_W-1_Photos'));
+  state.config = CFG({account:GMAIL});
+  await page.goto(URL0); await until(()=>txt('#buildTag').then(t=>/3\.0/.test(t)));
+  await until(()=>txt('#setupAuthMsg').then(t=>/was cleared/.test(t)), 15000, 'pin cleared notice');
+  T('a OneDrive confirmed for another account is cleared when the app opens, and says so',
+    await ev(()=>!loadCfg().pin && !signedIn()) && /jasontjames1974@gmail\.com/.test(await txt('#setupAuthMsg')) && /sent again/.test(await txt('#setupAuthMsg')), await txt('#setupAuthMsg'));
+  T('the job that was bound to it is queued again in full', await ev(()=>S && S.remote===null && S.confirmed===null) && (await pending())===1);
+  await signInAs('S');
+  T('the look-alike can no longer get in', /WRONG ACCOUNT/.test(await txt('#setupAuthMsg')) && await ev(()=>!loadCfg().pin));
+  await signInAs('A'); await pinYes();
+  await synced();
+  { const jf2 = jobFolder('A','WRONGPIN_W-1_Photos'); const t2 = jf2 ? tree('A', jf2) : {};
+    T('after the right account is confirmed the whole job lands in its OneDrive', !!jf2 && Object.keys(t2).some(k=>/-number\.jpg$/.test(k)) && ('PHOTO_MAP.json' in t2), JSON.stringify(t2)); }
+
+  /* no config.js: the Settings field does the same job */
+  await fresh(CFG());
+  await page.click('#btnCfgFromSetup'); await page.fill('#cfgClient','11111111-2222-3333-4444-555555555555');
+  await page.fill('#cfgHint','jasontjames1974'); await page.click('#btnCfgBack'); await sleep(300);
+  T('Settings refuses an account name without the part after the @', await on('scCfg') && /whole address/.test(await txt('#hintMsg')) && await ev(()=>!loadCfg().hint));
+  T('a short name left by an earlier build is never sent to Microsoft', await ev(()=>{ const c = loadCfg(); c.hint = 'jasontjames1974'; saveCfg(c); const r = acctHint()==='' && acctWant()===''; c.hint=''; saveCfg(c); return r; }));
+  await page.fill('#cfgHint',' JasonTJames1974@Gmail.com '); await page.click('#btnCfgBack'); await until(()=>on('scSetup'));
+  await signInAs('S');
+  T('with the whole address typed in Settings, another account is turned away too', /WRONG ACCOUNT/.test(await txt('#setupAuthMsg')));
+  await signInAs('A'); await pinYes();
+  T('...and the right one is accepted whatever the capitals', await ev(()=>pinnedId()==='DRIVE_A'));
 
 
   /* ---------- 20. defects found by the independent review ---------- */

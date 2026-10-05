@@ -55,12 +55,16 @@ const state = {
   truncateNext:0,                  // next N uploads are stored short (corruption)
   dropNextPut:0,                   // next N uploads report OK but store nothing
   log:[], sessions:new Map(), tokSeq:1, authorizeHits:[],
+  config:null,                     // when set, served in place of the site's config.js
 };
 function reset(){
   state.drives = {
     A: mkDrive('DRIVE_A','jasontjames1974@gmail.com', true),
     B: mkDrive('DRIVE_B','other.account@outlook.com', true),
     C: mkDrive('DRIVE_C','no.folder@outlook.com', false),
+    /* the look-alike: what a sign-in with the name but not the rest of the address
+       lands in. It has the folder path too, because an earlier build made it there. */
+    S: mkDrive('DRIVE_S','jasontjames1974', true),
   };
   state.nextAccount = 'A'; state.tokens.clear(); state.refresh.clear();
   state.refreshFails = false; state.expireAccess = false; state.throttle = 0;
@@ -239,6 +243,7 @@ function site(req, res, u, dir){
   res.writeHead(200, {'Content-Type':TYPES[path.extname(f)]||'application/octet-stream','Cache-Control':'no-cache'});
   let data = fs.readFileSync(f);
   if(p==='sw.js' && state.swSuffix) data = Buffer.concat([data, Buffer.from(state.swSuffix)]);
+  if(p==='config.js' && state.config!=null) data = Buffer.from(state.config);
   res.end(data);
 }
 

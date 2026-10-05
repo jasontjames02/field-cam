@@ -334,10 +334,11 @@ ul.plain li{margin:2px 0}
    <div class="muted" style="margin-top:10px">A folder named
    <b>&lt;Insured&gt;_&lt;Claim&gt;_Photos</b> is created inside it for each job. The destination
    folder itself is never created — if it is not there, this is the wrong OneDrive.</div>
-   <label>Sign-in account <span style="text-transform:none">(optional — the email Microsoft
-     should offer first)</span></label>
+   <label>OneDrive account <span style="text-transform:none">(the whole address — the app then
+     signs in to this account and refuses any other)</span></label>
    <input id="cfgHint" placeholder="you@example.com" autocapitalize="off" autocorrect="off"
      spellcheck="false" inputmode="email">
+   <div class="muted" id="hintMsg" style="margin-top:4px"></div>
    <label>Upload as you shoot</label>
    <select id="cfgAuto">
     <option value="1">On — each photo goes up seconds after it is taken</option>
@@ -414,7 +415,7 @@ ul.plain li{margin:2px 0}
    ============================================================ */
 
 const APP_NAME    = 'Field Capture';
-const APP_VERSION = '3.0';
+const APP_VERSION = '3.0.1';
 const APP_BUILT   = '2026-10-04';
 const MAP_SCHEMA  = 1;
 const DEFAULT_FOLDER = 'Documents/Claude/Projects/Assessment reports';
@@ -619,8 +620,16 @@ const clientId   = () => baked('clientId')  || (loadCfg().clientId||'').trim();
 const authority  = () => { const a = baked('authority') || loadCfg().authority || 'common';
                            return /^(common|consumers|organizations)$/.test(a) ? a : 'common'; };
 const folderSet  = () => baked('folder')    || loadCfg().folder || DEFAULT_FOLDER;
+/* A Microsoft account is named by its FULL address. The same name without the
+   part after the @ signs in to a different account with a OneDrive of its own,
+   so only a full address is ever used to pick an account or to check one. */
+const isAddr     = s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s||'').trim());
 const acctHint   = () => { const c = loadCfg();
-                           return baked('account') || (c.hint||'').trim() || (c.pin && c.pin.who) || ''; };
+                           const a = [baked('account'), c.hint, c.pin && c.pin.who].find(isAddr);
+                           return a ? String(a).trim() : ''; };
+/* The one account this app is set up for: config.js first, then Settings. */
+const acctWant   = () => { const a = baked('account') || loadCfg().hint;
+                           return isAddr(a) ? String(a).trim().toLowerCase() : ''; };
 const pinnedId   = () => { const c = loadCfg(); return baked('driveId') || (c.pin && c.pin.driveId) || ''; };
 const autoOn     = () => { const a = loadCfg().auto; return !(a==='0' || a===0 || a===false); };
 const tagCamNative = () => (loadCfg().tagCam||'native') !== 'live';
@@ -2220,7 +2229,7 @@ const authBase = () => 'https://login.microsoftonline.com/' + authority() + '/oa
    Azure requires an exact match and only one has to be registered. */
 const redirectUri = () => (location.origin + location.pathname).replace(/index\.html$/i,'');
 
-const PK_V = 'fc_pkce_verifier', PK_S = 'fc_pkce_state', PK_T = 'fc_pkce_at';
+const PK_V = 'fc_pkce_verifier', PK_S = 'fc_pkce_state', PK_T = 'fc_pkce_at', PK_C = 'fc_choose';
 const RET  = 'fc_pending_return';
 /* Microsoft documents a 24-hour refresh-token lifetime for single-page-app
    registrations, counted from the interactive sign-in. Not extendable. */
@@ -2316,7 +2325,11 @@ async function signIn(choose){
      two different OneDrives with near-identical names. */
   const hint = acctHint();
   if(hint) p.set('login_hint', hint);
-  if(choose || !pinnedId() || !hint) p.set('prompt','select_account');
+  /* With the account named in full, Microsoft is sent straight to it. If that
+     still came back as someone else, the next try shows the chooser. */
+  let again = false;
+  try{ again = !!localStorage.getItem(PK_C); }catch(e){}
+  if(choose || again || !(pinnedId() || acctWant()) || !hint) p.set('prompt','select_account');
   location.href = authBase()+'/authorize?'+p;
 }
 
@@ -2575,10 +2588,30 @@ async function verifyInner(){
   const dr = await gjson(GRAPH+'/me/drive');
   const who = me.userPrincipalName || me.mail || me.displayName || 'unknown';
   const owner = (dr.owner && dr.owner.user && (dr.owner.user.email || dr.owner.user.displayName)) || who;
+  healPin();
   const cfg = loadCfg();
   const pin = pinnedId();
+  const flag = on => { try{ on ? localStorage.setItem(PK_C,'1') : localStorage.removeItem(PK_C); }catch(e){} };
 
+  /* Nothing pinned yet, and the app has been told which account it is for:
+     any other account is turned away here, before it can be offered for
+     confirmation. A pinned drive is checked by its id instead, just below. */
+  const want = acctWant();
+  if(!pin && want){
+    const ids = [me.userPrincipalName, me.mail, dr.owner && dr.owner.user && dr.owner.user.email]
+                  .map(x=>String(x||'').trim().toLowerCase()).filter(Boolean);
+    if(!ids.includes(want)){
+      dropTokens(); flag(true);
+      VER = {ok:false, code:'wrong-account', who, owner, at:Date.now(),
+        msg:'Wrong account: signed in as '+who+', but this app is set up for '+want+'. Nothing was uploaded.',
+        html:'<b>WRONG ACCOUNT — NOTHING WAS UPLOADED.</b><br>You signed in as <b>'+esc(who)+'</b>. This app only uses '
+           + 'the OneDrive of <b>'+esc(want)+'</b>.<br><br>Tap SIGN IN and pick <b>'+esc(want)+'</b>, the whole '
+           + 'address. The same name without the part after the @ is a different Microsoft account.'};
+      return VER;
+    }
+  }
   if(pin && dr.id !== pin){
+    flag(true);
     const want = (cfg.pin && cfg.pin.who) || baked('account') || 'the account this app is pinned to';
     dropTokens();
     VER = {ok:false, code:'wrong-drive', who, owner, at:Date.now(),
@@ -2605,6 +2638,7 @@ async function verifyInner(){
          + 'destination folder in Settings.'};
     return VER;
   }
+  flag(false);
   const c2 = loadCfg();
   c2.acct = who;
   if(!pin){
@@ -2624,6 +2658,27 @@ async function verifyInner(){
   VER = {ok:true, at:Date.now(), driveId:dr.id, who, owner, driveType:dr.driveType||'',
          baseId:item.id, basePath:base, baseUrl:item.webUrl||''};
   return VER;
+}
+/* A OneDrive confirmed on this device for a different account than the one
+   config.js names was a wrong sign-in that got confirmed. It is dropped, with
+   the sign-in that went with it, and the start screen says so. */
+let PIN_CLEARED = null;
+function healPin(){
+  const want = isAddr(baked('account')) ? baked('account').toLowerCase() : '';
+  if(!want || baked('driveId')) return;
+  const c = loadCfg(), p = c.pin;
+  if(!p || !p.who) return;
+  if([p.who, p.owner].some(x=>String(x||'').trim().toLowerCase()===want)) return;
+  PIN_CLEARED = {who:p.who, driveId:p.driveId, want};
+  delete c.pin; saveCfg(c); dropTokens();
+  VER = null; PEEK = null; SY.block = ''; SY.note = '';
+}
+/* Nothing of this job counts as being in OneDrive any more: every photo and
+   the map go up again, into a folder made afresh. */
+async function forgetRemote(job){
+  for(const p of await idbAll('photos')) if(p.up) await updatePhoto(p.id, x=>{ x.up = false; delete x.upId; });
+  job.remote = null; job.remoteMapRev = -1; job.tomb = [];
+  job.confirmed = null;
 }
 function pinDrive(cand){
   const c = loadCfg();
@@ -2755,9 +2810,7 @@ async function healRemote(r, job){
   r.subs = {};
   if(!alive){
     /* The whole job folder is gone: nothing in it can be counted as uploaded. */
-    for(const p of await idbAll('photos')) if(p.up) await updatePhoto(p.id, x=>{ x.up = false; delete x.upId; });
-    job.remote = null; job.remoteMapRev = -1; job.tomb = [];
-    job.confirmed = null;
+    await forgetRemote(job);
   }
   if(S===job) await saveState();
 }
@@ -3528,10 +3581,21 @@ function saveCfgFields(){
   let ok = true;
   if(!baked('clientId'))  c.clientId  = $('cfgClient').value.trim();
   if(!baked('authority')) c.authority = $('cfgAuthority').value;
-  if(!baked('account'))   c.hint      = $('cfgHint').value.trim();
+  let bad = null;
+  if(!baked('account')){
+    const h = $('cfgHint').value.trim();
+    if(h && !isAddr(h)){
+      ok = false; bad = $('cfgHint');
+      $('hintMsg').innerHTML = '<span style="color:var(--bad)">✕ Use the whole address, like name@gmail.com. '
+        + 'The name without the part after the @ is a different Microsoft account.</span>';
+    } else {
+      if((c.hint||'') !== h){ VER = null; PEEK = null; }
+      c.hint = h; $('hintMsg').innerHTML = '';
+    }
+  }
   if(!baked('folder')){
     try{ c.folder = cleanFolder($('cfgFolder').value); $('cfgFolder').value = c.folder; }
-    catch(e){ ok = false; }
+    catch(e){ ok = false; bad = bad || $('cfgFolder'); }
   }
   c.auto   = $('cfgAuto').value;
   c.tagCam = $('cfgTagCam').value;
@@ -3539,6 +3603,7 @@ function saveCfgFields(){
   saveCfg(c);
   if(before !== [clientId(), authority(), folderSet()].join('|')){ VER = null; PEEK = null; SY.block = ''; }
   paintFolderCheck();
+  if(bad && bad.scrollIntoView) bad.scrollIntoView({block:'center'});
   return ok;
 }
 $('cfgFolder').addEventListener('input', paintFolderCheck);
@@ -3546,7 +3611,7 @@ $('btnFolderReset').onclick  = ()=>{ $('cfgFolder').value = DEFAULT_FOLDER; pain
 $('btnCfg').onclick          = ()=>openCfg('scRev');
 $('btnCfgFromSetup').onclick = ()=>openCfg('scSetup');
 $('btnCfgBack').onclick = async ()=>{
-  if(!saveCfgFields()){ $('cfgFolder').scrollIntoView && $('cfgFolder').scrollIntoView({block:'center'}); return; }
+  if(!saveCfgFields()) return;
   show(cfgReturn);
   if(cfgReturn==='scRev' && S) await renderReview();
   else { paintAuth(); paintResume(); }
@@ -3775,6 +3840,15 @@ window.addEventListener('pageshow', e=>{ if(e.persisted) location.reload(); });
     stop('The saved job on this phone could not be read. Close the app completely and open it again. '
        + 'Nothing has been deleted.');
     return;
+  }
+  healPin();
+  if(PIN_CLEARED){
+    let moved = false;
+    if(S && S.remote && S.remote.driveId===PIN_CLEARED.driveId){ await forgetRemote(S); await saveState(); moved = true; }
+    authMsg('This phone had confirmed the OneDrive of <b>'+esc(PIN_CLEARED.who)+'</b>. This app is set up for <b>'
+      + esc(PIN_CLEARED.want)+'</b> only, so that was cleared.'
+      + (moved ? ' The job on this phone will be sent again, in full, to the right OneDrive.' : '')
+      + ' Tap SIGN IN.', 'warn');
   }
   await paintResume();
   paintStore();
