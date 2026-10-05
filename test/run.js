@@ -151,10 +151,12 @@ function verify(dir, label){
   await page.screenshot({path:path.join(OUT,'cam_unit1.png')});
   await shot(1);
   T('number shot advances to DATA TAG', /NAMEPLATE/.test(await txt('#bTitle')));
+  T('DATA TAG is an ordinary viewfinder step: no phone-camera wording, no setting for it',
+    !/own camera/i.test(await txt('#bHint')) && (await txt('#btnAltCam'))==='PHONE CAMERA' && (await page.locator('#cfgTagCam').count())===0);
   T('step wording carries no chalk colour', !/green/i.test(await page.locator('#scCam').innerText()));
   {
-    const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.click('#shutter')]);
-    T('DATA TAG shutter opens the phone camera by default', true);
+    const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.click('#btnAltCam')]);
+    T('PHONE CAMERA opens the phone camera when it is asked for', true);
     const b = await ev(()=>S.seq);
     await fc.setFiles(big);
     await until(()=>ev(x=>S.seq>x && !busy, b), 30000, 'nameplate stored');
@@ -193,12 +195,15 @@ function verify(dir, label){
   /* ---------- 3. second unit: side step, new codes, no mark photo ---------- */
   mark('shooting: unit 2 and the new chalk codes');
   await shot(1);
-  await page.click('#btnAltCam');                      // viewfinder shot on DATA TAG
+  let chooser = false; const seen = ()=>{ chooser = true; }; page.on('filechooser', seen);
+  await page.click('#shutter');                        // DATA TAG, in the viewfinder
   await until(()=>unitPhotos().then(n=>n===2));
-  T('VIEWFINDER SHOT takes the data tag from the live preview', true);
+  page.off('filechooser', seen);
+  T('the DATA TAG shutter takes the photo in the viewfinder, like every other step', !chooser
+    && await ev(()=>curUnit().photos[1].step==='nameplate'));
   {
     const b = await ev(()=>S.seq);
-    const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.click('#shutter')]);
+    const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.click('#btnAltCam')]);
     await fc.setFiles(small[0]); await until(()=>ev(x=>S.seq>x && !busy, b));
   }
   await page.click('#advanceBtn'); await shot(1);
@@ -275,7 +280,7 @@ function verify(dir, label){
   await shot(1); await synced();
   T('three 429s are retried and the photo still lands', state.throttle===0 && Object.keys(tree('A',jf)).some(k=>/_U003_01-number/.test(k)));
   state.expireAccess = true;
-  await page.click('#btnAltCam'); await until(()=>unitPhotos().then(n=>n===2)); await synced();
+  await page.click('#shutter'); await until(()=>unitPhotos().then(n=>n===2)); await synced();
   T('an expired access token is refreshed and the upload completes', (await pending())===0 && !state.expireAccess);
   await ctx.setOffline(true);
   await page.click('#advanceBtn'); await shot(2);
@@ -561,7 +566,7 @@ function verify(dir, label){
   T('sign-in on a pinned browser sends login_hint and skips the chooser', state.authorizeHits.at(-1).login_hint==='jasontjames1974@gmail.com' && !state.authorizeHits.at(-1).prompt, JSON.stringify(state.authorizeHits.at(-1)));
   T('account-type setting is used in the sign-in address', /^\/consumers\//.test(state.authorizeHits.at(-1)._path), state.authorizeHits.at(-1)._path);
 
-  await page.click('#btnCfgFromSetup'); await page.selectOption('#cfgAuto','0'); await page.selectOption('#cfgTagCam','live'); await page.click('#btnCfgBack');
+  await page.click('#btnCfgFromSetup'); await page.selectOption('#cfgAuto','0'); await page.click('#btnCfgBack');
   await page.fill('#fInsured','Campus <Job> & Co'); await page.fill('#fClaim','C/26-9'); await page.fill('#fJob','2026-014'); await page.fill('#fBldgs','1b, 2a, 1b');
   await page.click('#btnStart'); await until(()=>on('scCam')); await camReady();
   T('buildings are upper-cased and de-duplicated', await ev(()=>S.buildings.join('|'))==='1B|2A');
@@ -576,7 +581,6 @@ function verify(dir, label){
     for(const c of codes) await page.click(`#sheetIn button[data-c="${c}"]`);
     await page.click('#scopeGoNext'); await until(()=>on('sheet').then(v=>!v));
   };
-  T('with data tags set to viewfinder, the shutter shoots live on DATA TAG', true);
   await quickUnit(['T','FG']); await quickUnit(['ND']);
   T('NFD is not offered on a job without a cosmetic exclusion', nfdOffered===0);
   T('two units done, unit 3 open in building 1B', (await txt('#tUnit'))==='3' && await ev(()=>S.units.length)===2);
@@ -753,7 +757,7 @@ function verify(dir, label){
   /* delete from a grid opened before the upload finished */
   await page.click('#btnResume'); await until(()=>on('scCam')); await camReady();
   await shot(1);
-  await page.click('#btnAltCam'); await until(()=>unitPhotos().then(n=>n===2));
+  await page.click('#shutter'); await until(()=>unitPhotos().then(n=>n===2));
   await page.click('#advanceBtn');
   await synced();
   state.putDelay = {re:/overview/, ms:2000};

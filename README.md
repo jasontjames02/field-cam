@@ -90,7 +90,7 @@ must exit 0. Covered: wrong OneDrive, missing destination folder, 429, expired a
 sign-in, offline, corrupted and missing uploads, stray files, deleted folders, a second visit,
 upgrade from v10, two tabs, a stalled camera, double taps, and the job-replacement guards.
 
-What it cannot cover is a real iPhone: the camera, the phone's own camera for data tags, the
+What it cannot cover is a real iPhone: the camera, close focus on a data tag, PHONE CAMERA, the
 share sheet for Save to Photos, sign-in from the home-screen app, and storage behaviour. Those
 are checked on the phone after each release.
 
@@ -101,8 +101,10 @@ are checked on the phone after each release.
   share sheet; the copy exists once "Save Images" is tapped there.
 - The home-screen app and a Safari tab keep separate storage. `config.js` is how they share
   settings; a job and its photos live only where they were shot.
-- Safari's viewfinder cannot tap-to-focus. Data-tag photos default to the phone's own camera,
-  which focuses close; the AUTO lens chip is the viewfinder alternative.
+- Safari's viewfinder cannot tap-to-focus. Data tags are shot in the viewfinder like every other
+  step (JJ, 2026-10-04: the phone's own camera as the default was dropped after the first phone
+  check). Up close, the AUTO lens chip is the one that focuses nearest; PHONE CAMERA is still
+  there on every step for a full-size photo.
 
 ## History
 
@@ -113,3 +115,4 @@ are checked on the phone after each release.
 | 2026-08-19, 08-20 | v8 – v10 | Rebuilt from the July code: gained lens picker, zoom and camera wake-up, lost the 08-12 work |
 | 2026-10-04 | 3.0 | v10 base with the 08-12 work restored; pinned OneDrive, reconcile, job guards, larger viewfinder, automatic next unit, current chalk codes |
 | 2026-10-04 | 3.0.1 | The account is named in full in `config.js`; look-alike accounts are refused before confirmation; a wrong confirmation is cleared. Found on the first phone check: a sign-in with the name alone landed in a second account, and it was confirmed |
+| 2026-10-04 | 3.0.2 | Data tags are shot in the viewfinder again; the phone's own camera is no longer the default for them and the setting is gone |

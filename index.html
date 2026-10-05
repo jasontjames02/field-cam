@@ -352,12 +352,7 @@ ul.plain li{margin:2px 0}
 
   <h2>Capture</h2>
   <div class="card">
-   <label style="margin-top:0">Data tag photos</label>
-   <select id="cfgTagCam">
-    <option value="native">Use the phone's own camera — focuses close (recommended)</option>
-    <option value="live">Use the viewfinder — fastest</option>
-   </select>
-   <label>Save to Photos — pictures per batch</label>
+   <label style="margin-top:0">Save to Photos — pictures per batch</label>
    <select id="cfgAlbumN">
     <option value="10">10</option>
     <option value="20">20</option>
@@ -415,7 +410,7 @@ ul.plain li{margin:2px 0}
    ============================================================ */
 
 const APP_NAME    = 'Field Capture';
-const APP_VERSION = '3.0.1';
+const APP_VERSION = '3.0.2';
 const APP_BUILT   = '2026-10-04';
 const MAP_SCHEMA  = 1;
 const DEFAULT_FOLDER = 'Documents/Claude/Projects/Assessment reports';
@@ -632,7 +627,6 @@ const acctWant   = () => { const a = baked('account') || loadCfg().hint;
                            return isAddr(a) ? String(a).trim().toLowerCase() : ''; };
 const pinnedId   = () => { const c = loadCfg(); return baked('driveId') || (c.pin && c.pin.driveId) || ''; };
 const autoOn     = () => { const a = loadCfg().auto; return !(a==='0' || a===0 || a===false); };
-const tagCamNative = () => (loadCfg().tagCam||'native') !== 'live';
 const albumN     = () => { const n = +(loadCfg().albumN||20); return [10,20,40].includes(n) ? n : 20; };
 
 /* ---------- job model ----------
@@ -1088,9 +1082,10 @@ async function shoot(opts){
         return;
       }
     }
-    const viaFile = o.forceFile || !stream ||
-                    (!o.forceLive && !o.site && st.k==='nameplate' && tagCamNative());
-    if(viaFile){ pickFile(o, st); return; }
+    /* Every step, the data tag included, is shot in the viewfinder. The phone's
+       own camera is only used when asked for (PHONE CAMERA) or when there is
+       no live preview to shoot from. */
+    if(o.forceFile || !stream){ pickFile(o, st); return; }
     if(!(await frameAlive())){
       lastRestart = 0; restartCam();
       toast('The camera had stalled, so that photo was NOT taken. It is restarting — take it again.', 'warn', 5000);
@@ -1709,13 +1704,10 @@ function renderCam(){
   sel.style.display = S.buildings.length>1 ? '' : 'none';
 
   const st = stepDef();
-  const tagNative = st.k==='nameplate' && tagCamNative() && !!stream;
   $('bTitle').textContent = st.title;
-  $('bHint').textContent  = tagNative
-    ? 'The shutter opens the phone\'s own camera here, because it focuses close. Fill the frame with the tag.'
-    : st.hint + (st.k==='nameplate' && lenses.some(l=>l.name==='AUTO') ? ' Up close, tap AUTO — it focuses nearest.' : '');
+  $('bHint').textContent  = st.hint + (st.k==='nameplate' && lenses.some(l=>l.name==='AUTO') ? ' Up close, tap AUTO — it focuses nearest.' : '');
   $('shutter').className  = st.hires ? 'hi' : '';
-  $('btnAltCam').textContent = tagNative ? 'VIEWFINDER SHOT' : 'PHONE CAMERA';
+  $('btnAltCam').textContent = 'PHONE CAMERA';
   $('btnAltCam').style.display = stream ? '' : 'none';
 
   const counts = {};
@@ -3514,10 +3506,7 @@ $('unitBadge').onclick  = openUnitSheet;
 $('lastThumb').onclick  = openUnitPhotos;
 $('syncPill').onclick   = openSync;
 $('btnTorch').onclick   = ()=>setTorch(!torchOn);
-$('btnAltCam').onclick  = ()=>{
-  const st = stepDef();
-  if(st.k==='nameplate' && tagCamNative()) shoot({forceLive:true}); else shoot({forceFile:true});
-};
+$('btnAltCam').onclick  = ()=>shoot({forceFile:true});
 $('selBldg').onchange   = async e=>{
   S.bldg = e.target.value; S.unit = nextUnitNo(); stepIdx = 0;
   await saveState(); renderCam();
@@ -3540,7 +3529,6 @@ function openCfg(from){
   lock('cfgHint',      'account',   baked('account') || c.hint || '');
   $('btnFolderReset').style.display = baked('folder') ? 'none' : '';
   $('cfgAuto').value   = autoOn() ? '1' : '0';
-  $('cfgTagCam').value = tagCamNative() ? 'native' : 'live';
   $('cfgAlbumN').value = String(albumN());
   const locked = ['clientId','authority','folder','account','driveId'].filter(baked);
   $('lockNote').textContent = locked.length
@@ -3598,7 +3586,6 @@ function saveCfgFields(){
     catch(e){ ok = false; bad = bad || $('cfgFolder'); }
   }
   c.auto   = $('cfgAuto').value;
-  c.tagCam = $('cfgTagCam').value;
   c.albumN = +$('cfgAlbumN').value;
   saveCfg(c);
   if(before !== [clientId(), authority(), folderSet()].join('|')){ VER = null; PEEK = null; SY.block = ''; }
