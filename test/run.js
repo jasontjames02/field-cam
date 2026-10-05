@@ -137,6 +137,7 @@ function verify(dir, label){
   /* ---------- 2. a unit, start to finish ---------- */
   mark('shooting: unit 1');
   await page.fill('#fInsured','TEST INSURED'); await page.fill('#fClaim','T-100');
+  await page.selectOption('#fCos','1');                    // this policy has a cosmetic exclusion
   await page.click('#btnStart');
   await until(()=>on('scCam')); await camReady();
   T('first unit opens by itself as unit 1', (await txt('#tUnit'))==='1');
@@ -161,10 +162,14 @@ function verify(dir, label){
   await shot(2);
   await page.click('#advanceBtn');
   T('NEXT from DAMAGE skips AHU and CTRL/MISC and opens the scope sheet', await on('sheet') && /Scope — unit 1/.test(await txt('#sheetIn h1')));
+  { const codes = await page.locator('#sheetIn button[data-c]').evaluateAll(els=>els.map(e=>e.dataset.c));
+    T('the seven everyday codes come first: T FG CC WC ECON UNIT SYS', codes.slice(0,7).join(' ')==='T FG CC WC ECON UNIT SYS', codes.join(' '));
+    T('T(ECON), ECON HOOD and EX are not in the picker', !codes.includes('T(ECON)') && !codes.includes('ECON HOOD') && !codes.includes('EX'));
+    T('the less common codes are folded away until asked for', !codes.includes('TRANS') && !codes.includes('DUCT INS') && await page.locator('#scopeMoreBtn').count()===1); }
   await page.click('#sheetIn button[data-c="CC"]');
   await page.click('#sheetIn b[data-q="CC"][data-d="1"]');
   await page.click('#sheetIn button[data-c="T"]');
-  T('codes combine in legend order with quantity', (await txt('#scopePrev'))==='CC(2) T', await txt('#scopePrev'));
+  T('codes combine in legend order with quantity', (await txt('#scopePrev'))==='T CC(2)', await txt('#scopePrev'));
   await page.click('#scopeGo');
   await until(async ()=> !(await on('sheet')) && /SCOPE CODE/.test(await txt('#bTitle')), 5000, 'scope step').catch(()=>{});
   T('after setting scope the camera is on the SCOPE step', !(await on('sheet')) && /SCOPE CODE/.test(await txt('#bTitle')));
@@ -198,15 +203,17 @@ function verify(dir, label){
   await shot(1);
   await page.click('#advanceBtn');
   T('NEXT from a side step goes on to scope', await on('sheet'));
-  await page.click('#sheetIn button[data-c="T(ECON)"]');
+  await page.click('#scopeMoreBtn');
+  await page.click('#sheetIn button[data-c="T"]');
   await page.click('#sheetIn button[data-c="TRANS"]');
+  T('NFD is offered on a job with a cosmetic exclusion', await page.locator('#sheetIn button[data-c="NFD"]').count()===1);
   await page.click('#sheetIn button[data-c="NFD"]');
   T('NFD clears repair codes (no priced scope stands alone)', (await txt('#scopePrev'))==='NFD', await txt('#scopePrev'));
   await page.click('#sheetIn button[data-c="NT"]'); await page.click('#sheetIn button[data-c="M"]');
   T('designators ride along with NFD', (await txt('#scopePrev'))==='NFD NT M', await txt('#scopePrev'));
-  await page.click('#sheetIn button[data-c="ECON HOOD"]'); await page.click('#sheetIn button[data-c="T(ECON)"]');
+  await page.click('#sheetIn button[data-c="ECON"]');
   await page.click('#sheetIn button[data-c="DUCT INS"]');
-  T('new section-4 codes are tappable and combine', (await txt('#scopePrev'))==='DUCT INS ECON HOOD T(ECON) NT M', await txt('#scopePrev'));
+  T('ECON and the less common codes combine', (await txt('#scopePrev'))==='ECON DUCT INS NT M', await txt('#scopePrev'));
   await page.fill('#scopeTake', '12 LF 14x10 INS TAPE');
   await page.click('#scopeGoNext');
   await until(()=>txt('#tUnit').then(t=>t==='3'), 5000, 'unit 3').catch(()=>{});
@@ -240,8 +247,20 @@ function verify(dir, label){
   mark('guards');
   await page.click('#steps .step:nth-child(1)');
   const before = await total();
-  await page.click('#shutter'); await sleep(600);
-  T('a second chalk-number photo on a unit is refused', (await total())===before && /already has its chalk-number photo/.test(await txt('#toast')), await txt('#toast'));
+  await page.click('#shutter'); await until(()=>on('sheet'));
+  T('the shutter on UNIT # offers a retake when the unit already has its number photo', /Retake the chalk-number photo\?/.test(await txt('#sheetIn h1')));
+  await page.click('#askNo'); await until(()=>on('sheet').then(v=>!v));
+  T('cancelling the retake changes nothing', (await total())===before);
+  const num0 = await ev(async ()=>{ const u = curUnit(); const r = await idbGet('photos', u.photos[0].id); return {id:r.id, file:r.file, ts:r.ts, step:r.step, n:u.photos.length}; });
+  await page.click('#steps .step:nth-child(1)'); await page.click('#shutter'); await until(()=>on('sheet')); await page.click('#askYes');
+  await until(()=>ev(async id=>!!(await idbGet('photos', id)).retaken_at, num0.id), 15000, 'retake stored');
+  const num1 = await ev(async ()=>{ const u = curUnit(); const r = await idbGet('photos', u.photos[0].id); return {id:r.id, file:r.file, ts:r.ts, step:r.step, n:u.photos.length, rt:r.retaken_at}; });
+  T('a retake replaces the picture in place: same file name, same first position, same photo count',
+    num0.step==='number' && num1.id===num0.id && num1.file===num0.file && num1.ts===num0.ts && num1.n===num0.n && (await total())===before && num1.rt>num0.ts, JSON.stringify(num1));
+  await synced();
+  { const lf = await localFiles(); const rf = tree('A', jf);
+    T('the retaken picture replaces the copy in OneDrive', await ev(async id=>{ const r = await idbGet('photos', id); return isUp(r) && r.upAt > r.retaken_at; }, num0.id)
+      && rf['Bldg-MAIN/'+num0.file]===lf['Bldg-MAIN/'+num0.file] && Object.keys(rf).filter(k=>!/^PHOTO_MAP/.test(k)).length===Object.keys(lf).length); }
 
   /* ---------- 6. throttling, expired token, offline ---------- */
   mark('429, expired token, offline');
@@ -342,7 +361,11 @@ function verify(dir, label){
   T('map header: Field Capture, app_version, app_built, map_schema, job_no',
     map.source==='Field Capture' && map.app_version==='3.0' && !!map.app_built && map.map_schema===1 && 'job_no' in map.claim && !('gtp_no' in map.claim));
   T('map carries the scope with new codes and the takeoff note',
-    map.units.some(u=>u.scope==='DUCT INS ECON HOOD T(ECON) NT M' && u.note==='12 LF 14x10 INS TAPE'), JSON.stringify(map.units));
+    map.units.some(u=>u.scope==='ECON DUCT INS NT M' && u.note==='12 LF 14x10 INS TAPE'), JSON.stringify(map.units));
+  { const rt = map.photo_map.filter(e=>e.retaken_at);
+    T('the retaken chalk-number photo is the unit\'s first entry, and the map says when it was retaken',
+      rt.length===1 && rt[0].type==='chalk_number' && /RETAKEN/.test(rt[0].note) && rt[0].captured < rt[0].retaken_at
+      && map.photo_map.filter(e=>e.unit===rt[0].unit)[0].file===rt[0].file, JSON.stringify(rt)); }
   T('map notes say "chalk", never "green chalk"', !/green/i.test(JSON.stringify(map)));
   T('imported photos are marked in the map with the camera time', map.photo_map.filter(e=>e.imported && /^2026-09-20 10:0\d:00$/.test(e.original_taken)).length===3);
   T('no unit without photographs is declared', map.units.every(u=>u.photo_count>0) && !map.units.some(u=>u.unit==='6'));
@@ -535,16 +558,19 @@ function verify(dir, label){
   await page.click('#btnStart'); await until(()=>on('scCam')); await camReady();
   T('buildings are upper-cased and de-duplicated', await ev(()=>S.buildings.join('|'))==='1B|2A');
   T('insured with HTML characters is shown as text, not markup', (await txt('#tInsured'))==='Campus <Job> & Co');
+  let nfdOffered = -1;
   const quickUnit = async (codes)=>{
     await shot(1); await shot(1);                       // number, data tag (viewfinder — setting is "live")
     await page.click('#advanceBtn'); await shot(1);     // overview
     await page.click('#advanceBtn'); await shot(1);     // damage
     await page.click('#advanceBtn'); await until(()=>on('sheet'));
+    nfdOffered = await page.locator('#sheetIn button[data-c="NFD"]').count();
     for(const c of codes) await page.click(`#sheetIn button[data-c="${c}"]`);
     await page.click('#scopeGoNext'); await until(()=>on('sheet').then(v=>!v));
   };
   T('with data tags set to viewfinder, the shutter shoots live on DATA TAG', true);
   await quickUnit(['T','FG']); await quickUnit(['ND']);
+  T('NFD is not offered on a job without a cosmetic exclusion', nfdOffered===0);
   T('two units done, unit 3 open in building 1B', (await txt('#tUnit'))==='3' && await ev(()=>S.units.length)===2);
   await page.selectOption('#selBldg','2A');
   await until(()=>txt('#tUnit').then(t=>t==='1'));
@@ -674,10 +700,10 @@ function verify(dir, label){
   T('a photo deleted from a grid opened before its upload finished is still removed from OneDrive', !('Bldg-MAIN/'+slow.file in tree('A', rj)), JSON.stringify(Object.keys(tree('A', rj))));
   /* the number photo cannot be removed from under the others */
   await until(()=>page.locator('#pgrid .th').count().then(n=>n===2), 8000, 'grid reopened');   // the grid reopens after a delete
-  await page.click('#pgrid .th:first-child'); await page.click('#askYes');
-  await until(()=>txt('#sheetIn').then(t=>/stays while the unit has other photos/.test(t)));
-  T('the chalk-number photo cannot be deleted while the unit has other photos', (await unitPhotos())===2);
-  await page.click('#noteOk');
+  await page.click('#pgrid .th:first-child');
+  await until(()=>txt('#sheetIn').then(t=>/stays while the unit has other photos/.test(t) && /Retake it/.test(t)));
+  T('tapping the chalk-number photo in the grid offers a retake, never a delete, while the unit has other photos', (await unitPhotos())===2);
+  await page.click('#askNo'); await until(()=>page.locator('#pgDone').count().then(n=>n===1)); await page.click('#pgDone');
 
   /* a dead camera track must not produce a photo */
   await ev(()=>{ track.stop(); });

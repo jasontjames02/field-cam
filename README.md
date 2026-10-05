@@ -53,6 +53,19 @@ Files are named `SEQ_B<bldg>_U<unit>_<nn>-<step>.jpg`; filename sort equals shoo
 Imported photos carry `imported: true` and, where the file records one, `original_taken`
 (EXIF camera time).
 
+A unit's chalk-number photo can be retaken at any time. The new picture replaces the old one in
+place — same record, same file name, same position at the front of the unit — so the map stays
+valid. `captured` keeps the moment that place was first shot (the verifier checks order by it)
+and `retaken_at` records when the picture now in the file was actually taken.
+
+## Scope codes
+
+The picker mirrors section 4 of the assessment standard. First on the sheet, in this order:
+`T FG CC WC ECON UNIT SYS`. Then `ND OOS TBD`, plus `NFD` only on a job whose policy has a
+cosmetic exclusion. Under "More codes": `DUCT INS`, `DUCT`, `TRANS`, `OA HOOD`, `OA SCREEN`, the
+designators `NT` and `M`, and a free-text takeoff note. `ECON` is the economizer hood; `ECON HOOD`
+is the same code. `T(ECON)` and `EX` are deliberately not offered.
+
 ## Tests
 
 `test/run.js` drives the unmodified app in headless Chromium (fake camera) against

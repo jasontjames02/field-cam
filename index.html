@@ -214,6 +214,11 @@ ul.plain li{margin:2px 0}
    <option value="building">Restart at 1 in each building</option>
    <option value="continuous">Continuous across the whole job</option>
   </select>
+  <label>Cosmetic exclusion on the policy</label>
+  <select id="fCos">
+   <option value="0">No</option>
+   <option value="1">Yes — offer NFD (no functional damage) as a code</option>
+  </select>
 
   <h2>Capture</h2>
   <div class="card">
@@ -456,33 +461,34 @@ const stepIndex = k => STEPS.findIndex(s=>s.k===k);
    exactly; read_photo_map.py rejects any code not in its own copy, so the two
    lists change together.
    [code, meaning, takes a quantity, group]
+   'main' are the seven used on almost every job and sit at the top of the
+   sheet; 'more' are one tap further down. ECON is the economizer hood (ECON
+   and ECON HOOD are one code). NFD is offered only on a job whose policy has a
+   cosmetic exclusion.
    Codes COMBINE — T FG CC is three codes on one unit, not one code. Order here
    is the order the code string is written in. */
 const SCOPES = [
-  ['UNIT',      'R&R unit',                               false, 'scope'],
-  ['SYS',       'R&R system',                             false, 'scope'],
-  ['CC',        'R&R condenser coil',                     true,  'scope'],
-  ['T',         'R&R top',                                false, 'scope'],
-  ['FG',        'R&R fan guard',                          true,  'scope'],
-  ['WC',        'Wash & comb condenser coil',             false, 'scope'],
-  ['DUCT INS',  '+ exterior duct insulation & jacketing', false, 'scope'],
-  ['DUCT',      'Replace that duct piece',                false, 'scope'],
-  ['TRANS',     'Duct transition',                        false, 'scope'],
-  ['ECON',      'Economizer',                             false, 'scope'],
-  ['ECON HOOD', 'Economizer hood',                        false, 'scope'],
-  ['T(ECON)',   'Economizer section top',                 false, 'scope'],
-  ['OA HOOD',   'Outside-air intake hood',                false, 'scope'],
-  ['OA SCREEN', 'R&R outside air intake screen',          false, 'scope'],
+  ['T',         'R&R top',                                false, 'main'],
+  ['FG',        'R&R fan guard',                          true,  'main'],
+  ['CC',        'R&R condenser coil',                     true,  'main'],
+  ['WC',        'Wash & comb condenser coil',             false, 'main'],
+  ['ECON',      'Economizer hood',                        false, 'main'],
+  ['UNIT',      'R&R unit',                               false, 'main'],
+  ['SYS',       'R&R system',                             false, 'main'],
+  ['DUCT INS',  '+ exterior duct insulation & jacketing', false, 'more'],
+  ['DUCT',      'Replace that duct piece',                false, 'more'],
+  ['TRANS',     'Duct transition',                        false, 'more'],
+  ['OA HOOD',   'Outside-air intake hood',                false, 'more'],
+  ['OA SCREEN', 'R&R outside air intake screen',          false, 'more'],
   ['ND',        'No damage',                              false, 'none'],
   ['NFD',       'No functional damage — cosmetic only',   false, 'none'],
   ['OOS',       'Out of service — excluded',              false, 'none'],
   ['TBD',       'Undecided — flag for review',            false, 'none'],
   ['NT',        'No data tag',                            false, 'tag'],
-  ['M',         'Mechanical damage, not from the loss',   false, 'tag'],
-  ['EX',        'Exhaust (equipment type)',               false, 'tag']
+  ['M',         'Mechanical damage, not from the loss',   false, 'tag']
 ];
 /* Codes that mean "no priced scope on this unit". They cannot combine with a
-   repair code or with each other, but a designator (NT, M, EX) can ride along. */
+   repair code or with each other, but a designator (NT, M) can ride along. */
 const EXCLUSIVE  = new Set(SCOPES.filter(s=>s[3]==='none').map(s=>s[0]));
 const DESIGNATOR = new Set(SCOPES.filter(s=>s[3]==='tag').map(s=>s[0]));
 
@@ -641,7 +647,7 @@ function newJob(f){
   return {
     insured:f.insured, claim:f.claim, job:f.job||'',
     started:new Date().toISOString(),
-    buildings:f.buildings, reset:f.reset, resPx:f.resPx,
+    buildings:f.buildings, reset:f.reset, resPx:f.resPx, cosmetic:!!f.cosmetic,
     bldg:f.buildings[0], unit:null, seq:0, units:[],
     photoRev:0, mapRev:0, remote:null, remoteMapRev:-1, tomb:[],
     confirmed:null, exported:null, app:APP_VERSION
@@ -1055,17 +1061,16 @@ async function shoot(opts){
     const o = opts||{};
     if(!stream && starting){ try{ await starting; }catch(e){} }
     if(!S) return;
-    const st = o.site ? SITE_STEP : stepDef();
-    if(!o.site){
+    const st = o.replaceId ? STEPS[0] : (o.site ? SITE_STEP : stepDef());
+    if(!o.site && !o.replaceId){
       if(S.unit==null){ openUnitSheet(); return; }
       const u = curUnit();
       const nums = u ? u.photos.filter(p=>p.step==='number') : [];
       /* A unit's block has to open on exactly one chalk-number photo: the map
-         verifier rejects none or two, and the photo report needs it to be first. */
+         verifier rejects none or two, and the photo report needs it to be first.
+         So a second one is never added — the existing one is RETAKEN in place. */
       if(st.k==='number' && nums.length){
-        if(u.photos.length===1){ replaceNumber(u, nums[0], o).catch(e=>toast('Photo NOT replaced — '+storeErr(e), 'bad', 8000)); return; }
-        toast('Unit '+S.unit+' already has its chalk-number photo. It has to stay the unit\'s first photo, '
-            + 'so it cannot be retaken once others follow.', 'warn', 5000);
+        askRetake(nums[0], o).catch(e=>toast('Photo NOT replaced — '+storeErr(e), 'bad', 8000));
         return;
       }
       if(st.k!=='number' && !nums.length){
@@ -1095,13 +1100,33 @@ function storeErr(e){
   if(/constraint/i.test(m)) return 'a photo with that number is already stored. Close the app completely and open it again.';
   return (e && e.message) || 'unknown error';
 }
-async function replaceNumber(u, old, o){
-  const yes = await ask('Retake the number photo?',
-    'Unit '+esc(S.unit)+' already has its chalk-number photo. Replace it with a new one?', 'Replace');
+/* Retaking the chalk-number photo. The new picture takes the old one's place:
+   same record, same file name, same position at the front of the unit. Nothing
+   else about the unit or the map moves, so a retake can never cost the job its
+   verified map. */
+async function askRetake(old, o){
+  const yes = await ask('Retake the chalk-number photo?',
+    'Unit '+esc(S.unit)+' already has its chalk-number photo. The new one takes its place — same position '
+    + 'at the front of the unit — so nothing else changes.', 'Retake');
   if(!yes) return;
-  await deletePhoto(old, u, true, true);
-  busy = false;
-  shoot(Object.assign({}, o, {forceLive:!!stream}));
+  stepIdx = 0; renderCam();
+  shoot(Object.assign({}, o, {replaceId:old.id, forceLive:!!stream}));
+}
+async function replaceShot(id, blob){
+  const snap = snapState();
+  const at = new Date().toISOString();
+  let out = null;
+  try{
+    out = await updatePhoto(id, rec=>{
+      rec.blob = blob;
+      rec.rev = (rec.rev||0) + 1;          // an upload of the old picture still in the air will not count
+      rec.retaken_at = at;
+      rec.up = false; rec.album = false; delete rec.upSize; delete rec.upAt;
+      touch(true);
+    }, true);
+  }catch(e){ restoreState(snap); throw e; }
+  if(!out) throw new Error('that photo is no longer on the phone');
+  return out;
 }
 
 let pendingShot = null;
@@ -1221,6 +1246,15 @@ async function handleImport(files){
 $('filePickLib').addEventListener('change', e=>handleImport(e.target.files));
 
 async function storeShot(blob, st, o){
+  if(o.replaceId){
+    await replaceShot(o.replaceId, blob);
+    navigator.vibrate && navigator.vibrate(18);
+    kickQueue();
+    stepIdx = resumeStep();
+    renderCam();
+    toast('Chalk-number photo for unit '+S.unit+' replaced.');
+    return;
+  }
   const site = !!o.site;
   if(!site && S.unit==null) throw new Error('no unit is open');
 
@@ -1395,7 +1429,7 @@ async function renameUnit(u, v){
         q.onsuccess = ()=>{
           const rec = q.result;
           if(rec){
-            if(isUp(rec)) S.tomb.push({id:rec.upId, file:rec.file});
+            if(rec.upId) S.tomb.push({id:rec.upId, file:rec.file});
             const m = /_(\d+)-[a-z]+\.jpg$/i.exec(rec.file||'');
             rec.unit = v;
             rec.file = mkName(rec.seq, rec.building, v, rec.step, rec.n || (m? +m[1] : 1));
@@ -1415,6 +1449,7 @@ async function renameUnit(u, v){
 /* ---------- scope (the chalk code that closes a unit) ---------- */
 let scopePick = null;              // {code: qty|null} for the sheet currently open
 let scopeTake = '';
+let scopeMore = false;             // the less common codes are folded away until asked for
 
 function scopeString(pick){
   /* Rebuild the chalk code in legend order so it always reads the same way. */
@@ -1441,6 +1476,7 @@ function openScope(){
   if(!u || !u.photos.length){ toast('Shoot this unit\'s chalk number first.','warn'); return; }
   scopePick = u.pick ? Object.assign({}, u.pick) : parseScope(u.scope);
   scopeTake = u.takeoff || '';
+  scopeMore = !!scopeTake;
   renderScopeSheet();
 }
 function renderScopeSheet(){
@@ -1450,30 +1486,37 @@ function renderScopeSheet(){
   const hasMark = u.photos.some(p=>p.step==='scope');
   const btn = ([c,d,q,g])=>{
     const on = c in scopePick;
-    const dim = !on && excl && g==='scope' ? 'opacity:.35' : '';
+    const dim = !on && excl && (g==='main' || g==='more') ? 'opacity:.35' : '';
     const qty = (on && q) ? `<span class="qty">
         <b data-q="${esc(c)}" data-d="-1">−</b> qty ${scopePick[c]||1}
         <b data-q="${esc(c)}" data-d="1">+</b></span>` : '';
     return `<button data-c="${esc(c)}" class="${on?'on':''}" style="${dim}">${esc(c)}<small>${esc(d)}</small>${qty}</button>`;
   };
-  const grp = g => SCOPES.filter(s=>s[3]===g).map(btn).join('');
+  /* NFD belongs to policies with a cosmetic exclusion; on any other job it is
+     not offered (it still shows if a unit already carries it). */
+  const offer = s => s[0]!=='NFD' || S.cosmetic || ('NFD' in scopePick);
+  const grp = g => SCOPES.filter(s=>s[3]===g && offer(s)).map(btn).join('');
+  const moreOpen = scopeMore || SCOPES.some(s=>(s[3]==='more' || s[3]==='tag') && (s[0] in scopePick));
   const top = $('sheetIn').scrollTop;
   sheet(`
     <h1>Scope — unit ${esc(u.unit)}</h1>
     <div class="muted">Tap every code chalked on the unit — they combine (T FG CC). Set a quantity
-    on CC and FG when there is more than one.</div>
+    on FG and CC when there is more than one.</div>
     <div class="card" style="margin-top:12px;text-align:center">
       <div style="font-size:11px;color:var(--dim);letter-spacing:.09em">CHALK CODE</div>
       <div style="font-size:19px;font-weight:800;margin-top:4px" id="scopePrev">${esc(cur)||'—'}</div>
     </div>
-    <div class="scopeHead">Repair or replace</div>
-    <div class="scopeGrid" data-g>${grp('scope')}</div>
+    <div class="scopeGrid" data-g>${grp('main')}</div>
     <div class="scopeHead">No priced scope</div>
     <div class="scopeGrid" data-g>${grp('none')}</div>
-    <div class="scopeHead">Designators — these ride along with any code</div>
-    <div class="scopeGrid" data-g>${grp('tag')}</div>
-    <label>Takeoff or note chalked with it <span style="text-transform:none">(optional — e.g. 12 LF 14x10 INS TAPE, or DUCT 90°)</span></label>
-    <input id="scopeTake" value="${esc(scopeTake)}" autocapitalize="characters" autocomplete="off">
+    ${moreOpen
+      ? `<div class="scopeHead">Less common</div><div class="scopeGrid" data-g>${grp('more')}</div>
+         <div class="scopeHead">Designators — these ride along with any code</div>
+         <div class="scopeGrid" data-g>${grp('tag')}</div>
+         <label>Takeoff or note chalked with it <span style="text-transform:none">(optional — e.g. 12 LF 14x10 INS TAPE, or DUCT 90°)</span></label>
+         <input id="scopeTake" value="${esc(scopeTake)}" autocapitalize="characters" autocomplete="off">`
+      : `<button class="ghost" style="width:100%;margin-top:12px;font-size:13px;padding:11px" id="scopeMoreBtn">
+           More codes — duct, transition, OA hood, OA screen, NT, M, takeoff note</button>`}
     <div class="sheetFoot">
       <div class="row">
         <button class="ghost" id="scopeCancel" style="flex:.6">Cancel</button>
@@ -1485,7 +1528,8 @@ function renderScopeSheet(){
     </div>`);
   $('sheetIn').scrollTop = top;
 
-  $('scopeTake').oninput = e=>{ scopeTake = e.target.value; };
+  if($('scopeMoreBtn')) $('scopeMoreBtn').onclick = ()=>{ scopeMore = true; renderScopeSheet(); };
+  if($('scopeTake')) $('scopeTake').oninput = e=>{ scopeTake = e.target.value; };
   $('sheetIn').querySelectorAll('b[data-q]').forEach(el=>{
     el.onclick = e=>{ e.stopPropagation();
       const c = el.dataset.q, d = +el.dataset.d;
@@ -1549,13 +1593,23 @@ async function openUnitPhotos(){
     d.appendChild(i);
     if(isUp(rec)){ const em = document.createElement('em'); em.className='up'; em.textContent='↑'; d.appendChild(em); }
     d.onclick = async ()=>{
+      const onlyNumber = p.step==='number' && u.photos.length>1 && u.photos.filter(x=>x.step==='number').length===1;
+      if(onlyNumber){
+        if(await ask('Chalk-number photo',
+            'This photo opens unit '+esc(u.unit)+', so it stays while the unit has other photos. It can be retaken: '
+            + 'the new photo takes its place.', 'Retake it')){
+          stepIdx = 0; renderCam();
+          shoot({replaceId:rec.id, forceLive:!!stream});
+        } else openUnitPhotos();
+        return;
+      }
       if(await ask('Delete this photo?', esc(rec.file), 'Delete', 'danger')){
         let r = 'failed';
         try{ r = await deletePhoto(rec, u); }catch(e){}
         renderCam();
         if(r==='number'){
           note('The chalk-number photo opens this unit in the map, so it stays while the unit has other photos. '
-             + 'If the number itself is wrong, tap the unit number and use Renumber.', 'warn');
+             + 'To replace it, go to UNIT # and tap the shutter. If the number itself is wrong, tap the unit number and use Renumber.', 'warn');
           return;
         }
         if(r==='failed'){ note('That photo could not be deleted — the phone refused the change. Nothing was removed.','bad'); return; }
@@ -1588,7 +1642,7 @@ async function deletePhoto(rec, u, quiet, force){
         if(cur && !force && cur.step==='number' && unit && unit.photos.length>1 && nums<=1){ res = 'number'; return; }
         const listed = !!(unit && unit.photos.some(p=>p.id===rec.id));
         if(!cur && !listed) return;                       // nothing to do; leave the job untouched
-        if(cur && isUp(cur)) S.tomb.push({id:cur.upId, file:cur.file});
+        if(cur && cur.upId) S.tomb.push({id:cur.upId, file:cur.file});
         if(unit){
           unit.photos = unit.photos.filter(p=>p.id!==rec.id);
           if(!unit.photos.length) S.units = S.units.filter(x=>x!==unit);
@@ -1729,6 +1783,11 @@ async function buildMap(job){
     if(p.subtype && p.subtype!==p.type) e.subtype = p.subtype;
     if(p.imported){ e.imported = true; if(p.orig_taken) e.original_taken = p.orig_taken; }
     if(p.type==='chalk_scope' && p.unit) e.scope = (u && u.scope) || '';
+    /* A retaken chalk-number photo keeps its place in the shooting order, so
+       `captured` stays the moment that place was first shot (the verifier
+       checks order by it). When the picture now in the file was actually taken
+       is recorded beside it, never hidden. */
+    if(p.retaken_at){ e.retaken_at = p.retaken_at; e.note += ' · RETAKEN ' + p.retaken_at + ' (first taken ' + p.ts + ')'; }
     e.captured = p.ts;
     return e;
   });
@@ -1762,7 +1821,7 @@ async function mapJson(job){
 async function mapCsv(job){
   const m = await buildMap(job || S);
   const q = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const head = ['file','building','unit','type','subtype','scope','note','imported','original_taken','captured'];
+  const head = ['file','building','unit','type','subtype','scope','note','imported','original_taken','retaken_at','captured'];
   return [head.join(',')].concat(
     m.map(r=>head.map(h=>q(r[h])).join(','))
   ).join('\r\n');
@@ -2236,7 +2295,7 @@ async function signIn(choose){
   try{
     localStorage.setItem(RET, JSON.stringify({
       insured:$('fInsured').value, claim:$('fClaim').value, job:$('fJob').value,
-      bldgs:$('fBldgs').value, reset:$('fReset').value, res:$('fRes').value
+      bldgs:$('fBldgs').value, reset:$('fReset').value, res:$('fRes').value, cos:$('fCos').value
     }));
   }catch(e){}
 
@@ -2335,6 +2394,7 @@ function restorePending(){
   if(d.job)     $('fJob').value     = d.job;
   if(d.bldgs)   $('fBldgs').value   = d.bldgs;
   if(d.reset)   $('fReset').value   = d.reset;
+  if(d.cos)     $('fCos').value     = d.cos;
   if(d.res)     $('fRes').value     = d.res;
 }
 
@@ -2720,7 +2780,12 @@ async function sendPhoto(r, p, job){
     /* A replaced file can keep its OneDrive id, so an older removal request
        for that id must not delete the copy that just went up. */
     job.tomb = job.tomb.filter(t=>t.id!==item.id);
-    rec.up = true; rec.upId = item.id; rec.upSize = item.size; rec.upAt = new Date().toISOString();
+    rec.upId = item.id;
+    /* The picture was retaken while this copy was in the air: OneDrive now
+       holds the OLD image under that name, so the photo stays pending and the
+       new image goes up on the next pass. */
+    if((rec.rev||0)!==(p.rev||0)) return;
+    rec.up = true; rec.upSize = item.size; rec.upAt = new Date().toISOString();
   }, true);
   if(S!==job) return false;
   if(!now){
@@ -3004,7 +3069,8 @@ async function confirmUpload(){
       res = {all, rev, missing, wrong, extras, mapsOk};
       if(!missing.length && !wrong.length) break;
       /* Anything OneDrive does not hold correctly is sent again, once. */
-      for(const p of missing.concat(wrong)) await updatePhoto(p.id, x=>{ if(x.file!==p.file) return false; x.up = false; delete x.upId; });
+      for(const p of missing) await updatePhoto(p.id, x=>{ if(x.file!==p.file) return false; x.up = false; delete x.upId; });
+      for(const p of wrong)   await updatePhoto(p.id, x=>{ if(x.file!==p.file) return false; x.up = false; });
       if(pass===1) log('re-sending what did not match…');
      }catch(e){
       /* The job folder (or a subfolder) is no longer in OneDrive. Forget the
@@ -3364,7 +3430,8 @@ $('btnStart').onclick = async ()=>{
   try{
     await idbRun(['photos','kv'],'readwrite', t=>{ t.objectStore('photos').clear(); t.objectStore('kv').put({k:'state',v:null}); });
     S = newJob({insured, claim, job:$('fJob').value.trim(),
-                buildings:bl, reset:$('fReset').value, resPx:+$('fRes').value});
+                buildings:bl, reset:$('fReset').value, resPx:+$('fRes').value,
+                cosmetic:$('fCos').value==='1'});
     await saveState();
   }catch(e){
     try{ S = await loadState(); }catch(_){ S = null; }
@@ -3568,6 +3635,8 @@ $('btnEditClaim').onclick = ()=>{
     <label>Claim #</label><input id="ecClaim" value="${esc(S.claim)}" autocapitalize="characters" autocomplete="off">
     <label>Job # (optional)</label><input id="ecJob" value="${esc(S.job||'')}" autocomplete="off">
     <label>Buildings (comma separated)</label><input id="ecBldgs" value="${esc(S.buildings.join(', '))}" autocapitalize="characters" autocomplete="off">
+    <label>Cosmetic exclusion on the policy</label>
+    <select id="ecCos"><option value="0">No</option><option value="1"${S.cosmetic?' selected':''}>Yes — offer NFD as a code</option></select>
     <div id="ecMsg"></div>
     <div class="row" style="margin-top:16px">
       <button class="ghost" id="ecNo">Cancel</button>
@@ -3583,6 +3652,7 @@ $('btnEditClaim').onclick = ()=>{
     if(gone.length){ $('ecMsg').innerHTML = '<div class="flag bad">Building '+esc(gone.join(', '))+' has units in it and cannot be removed.</div>'; return; }
     if(!bl.length) bl = ['MAIN'];
     S.insured = insured; S.claim = claim; S.job = $('ecJob').value.trim(); S.buildings = bl;
+    S.cosmetic = $('ecCos').value==='1';
     if(!bl.includes(S.bldg)){ S.bldg = bl[0]; S.unit = nextUnitNo(); }
     touch(false);
     await saveState();
